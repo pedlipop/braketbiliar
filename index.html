@@ -1,0 +1,2543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tournament Bracket Pro</title>
+  <!-- Google Fonts: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            background: '#FFFFFF',
+            surface: '#F8F9FA',
+            border: '#E5E7EB',
+            textPrimary: '#111827',
+            textSecondary: '#6B7280',
+            success: '#10B981',
+            warning: '#F59E0B',
+            error: '#EF4444',
+            accent: '#2563EB',
+          },
+          fontFamily: {
+            sans: ['Outfit', 'Inter', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <!-- React & Babel CDNs -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: 'Outfit', 'Inter', sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+    /* Scrollbar aesthetics */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #F8F9FA;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #E5E7EB;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #6B7280;
+    }
+    /* SVG Connector lines smooth rendering */
+    .connector-path {
+      stroke-dasharray: 4;
+      stroke-dashoffset: 4;
+      animation: dash 1s linear infinite;
+    }
+    @keyframes dash {
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+  </style>
+</head>
+<body class="bg-white text-textPrimary h-screen w-screen flex flex-col">
+
+  <div id="root" class="h-full w-full"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    // --- MOCK LOGO & HELPER LOGIC ---
+    const generateId = () => '_' + Math.random().toString(36).substring(2, 11);
+
+    const getSeedingOrder = (size) => {
+      let order = [1, 2];
+      while (order.length < size) {
+        const nextOrder = [];
+        const target = order.length * 2 + 1;
+        for (const x of order) {
+          nextOrder.push(x);
+          nextOrder.push(target - x);
+        }
+        order = nextOrder;
+      }
+      return order;
+    };
+
+    // --- REALTIME TAB SYNC CHANNEL ---
+    const syncChannel = new BroadcastChannel('tournament_sync_channel');
+
+    // --- APP CONTAINER ---
+    function App() {
+      // --- CORE STATE ---
+      const [participants, setParticipants] = useState([
+        { id: '1', name: "John Doe", companyId: "COMP001", seed: 1 },
+        { id: '2', name: "Jane Smith", companyId: "COMP002", seed: 2 },
+        { id: '3', name: "Alice Cooper", companyId: "COMP003", seed: 3 },
+        { id: '4', name: "Bob Marley", companyId: "COMP004", seed: 4 },
+        { id: '5', name: "Charlie Chaplin", companyId: "COMP005", seed: 5 },
+        { id: '6', name: "David Bowie", companyId: "COMP006", seed: 6 },
+        { id: '7', name: "Elton John", companyId: "COMP007", seed: 7 },
+        { id: '8', name: "Freddie Mercury", companyId: "COMP008", seed: 8 },
+        { id: '9', name: "George Michael", companyId: "COMP009", seed: 9 }
+      ]);
+
+      const [matches, setMatches] = useState([]);
+      const [status, setStatus] = useState('Draft'); // Draft, Seeded, Started, Completed
+      const [historyLogs, setHistoryLogs] = useState([]);
+      const [historyIndex, setHistoryIndex] = useState(-1);
+
+      // --- UI CONTROLS ---
+      const [selectedMatch, setSelectedMatch] = useState(null);
+      const [highlightedParticipantId, setHighlightedParticipantId] = useState(null);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [isAdmin, setIsAdmin] = useState(true);
+      const [layoutMode, setLayoutMode] = useState('Double'); // Single or Double sided
+      const [zoomPercent, setZoomPercent] = useState(100);
+      const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+      const [activeMobileTab, setActiveMobileTab] = useState('bracket'); // bracket, participants, search, history
+      
+      // Collapsible sidebars (Tablet / Desktop)
+      const [sidebarLeftOpen, setSidebarLeftOpen] = useState(true);
+      const [sidebarRightOpen, setSidebarRightOpen] = useState(true);
+
+      // Modals
+      const [showImportModal, setShowImportModal] = useState(false);
+      const [showAddPartModal, setShowAddPartModal] = useState(false);
+      const [editingPart, setEditingPart] = useState(null);
+
+      // Views
+      const viewportRef = useRef(null);
+      const canvasRef = useRef(null);
+      const isDraggingRef = useRef(false);
+      const dragStartRef = useRef({ x: 0, y: 0 });
+
+      // Save initial history state
+      useEffect(() => {
+        if (historyLogs.length === 0) {
+          const snapshot = {
+            participants: JSON.parse(JSON.stringify(participants)),
+            matches: [],
+            status: 'Draft'
+          };
+          const initialLog = {
+            timestamp: Date.now(),
+            user: "System",
+            action: "Setup Draft",
+            details: "Initial setup with sample participants",
+            stateSnapshot: snapshot
+          };
+          setHistoryLogs([initialLog]);
+          setHistoryIndex(0);
+        }
+      }, []);
+
+      // Broadcast changes to other tabs
+      const broadcastState = (newParts, newMatches, newStatus, action, details) => {
+        const snapshot = {
+          participants: JSON.parse(JSON.stringify(newParts)),
+          matches: JSON.parse(JSON.stringify(newMatches)),
+          status: newStatus
+        };
+
+        const newLog = {
+          timestamp: Date.now(),
+          user: "Admin",
+          action,
+          details,
+          stateSnapshot: snapshot
+        };
+
+        // Update local history
+        setHistoryLogs(prev => {
+          const active = prev.slice(0, historyIndex + 1);
+          setHistoryIndex(active.length);
+          return [...active, newLog];
+        });
+
+        // Broadcast to BroadcastChannel
+        syncChannel.postMessage({
+          type: 'SYNC_STATE',
+          state: {
+            participants: newParts,
+            matches: newMatches,
+            status: newStatus,
+            historyIndex: historyIndex + 1,
+            historyLogs: [...historyLogs.slice(0, historyIndex + 1), newLog]
+          }
+        });
+      };
+
+      // Listen for broadcasts from other tabs
+      useEffect(() => {
+        const handleSync = (e) => {
+          if (e.data?.type === 'SYNC_STATE') {
+            const { participants: sp, matches: sm, status: ss, historyIndex: sIdx, historyLogs: sLogs } = e.data.state;
+            setParticipants(sp);
+            setMatches(sm);
+            setStatus(ss);
+            setHistoryIndex(sIdx);
+            setHistoryLogs(sLogs);
+          }
+        };
+        syncChannel.addEventListener('message', handleSync);
+        return () => syncChannel.removeEventListener('message', handleSync);
+      }, [historyLogs, historyIndex]);
+
+      // --- BRACKET RESIZING ENGINE ---
+      const generateBracketLayout = (currentParts) => {
+        const N = currentParts.length;
+        if (N < 2) return [];
+
+        let S = 4;
+        while (S < N) {
+          S *= 2;
+        }
+
+        const R = Math.log2(S);
+        const sortedPlayers = [...currentParts].sort((a, b) => a.seed - b.seed);
+        const seedOrder = getSeedingOrder(S);
+        const r0Count = S / 2;
+        const rawRound0 = [];
+
+        for (let i = 0; i < r0Count; i++) {
+          const s1 = seedOrder[2 * i];
+          const s2 = seedOrder[2 * i + 1];
+
+          const p1 = sortedPlayers.find(p => p.seed === s1) || null;
+          const p2 = sortedPlayers.find(p => p.seed === s2) || null;
+
+          rawRound0.push({
+            id: `match_0_${i}`,
+            round: 0,
+            index: i,
+            p1,
+            p2,
+            score1: null,
+            score2: null,
+            winner: null,
+            isLocked: false,
+            p1SourceMatchId: null,
+            p2SourceMatchId: null,
+            destMatchId: null,
+            destParam: null,
+            side: 'left'
+          });
+        }
+
+        // Sort Round 0 matches so that BYEs are placed at the end
+        rawRound0.sort((a, b) => {
+          const aHasBye = (a.p1 === null || a.p2 === null);
+          const bHasBye = (b.p1 === null || b.p2 === null);
+          if (!aHasBye && bHasBye) return -1;
+          if (aHasBye && !bHasBye) return 1;
+          return a.index - b.index;
+        });
+
+        // Reindex round 0
+        rawRound0.forEach((m, idx) => {
+          m.id = `match_0_${idx}`;
+          m.index = idx;
+        });
+
+        let newMatches = [...rawRound0];
+
+        // Create higher round matches
+        for (let r = 1; r < R; r++) {
+          const roundCount = S / Math.pow(2, r + 1);
+          for (let i = 0; i < roundCount; i++) {
+            newMatches.push({
+              id: `match_${r}_${i}`,
+              round: r,
+              index: i,
+              p1: null,
+              p2: null,
+              score1: null,
+              score2: null,
+              winner: null,
+              isLocked: false,
+              p1SourceMatchId: `match_${r-1}_${2*i}`,
+              p2SourceMatchId: `match_${r-1}_${2*i+1}`,
+              destMatchId: null,
+              destParam: null,
+              side: 'left'
+            });
+          }
+        }
+
+        // Link matches
+        for (let r = 0; r < R - 1; r++) {
+          const roundCount = S / Math.pow(2, r + 1);
+          for (let i = 0; i < roundCount; i++) {
+            const currentMatch = newMatches.find(m => m.id === `match_${r}_${i}`);
+            if (currentMatch) {
+              const destIdx = Math.floor(i / 2);
+              const destParam = (i % 2 === 0) ? 'p1' : 'p2';
+              currentMatch.destMatchId = `match_${r+1}_${destIdx}`;
+              currentMatch.destParam = destParam;
+            }
+          }
+        }
+
+        // Add 3rd Place Match
+        if (S >= 4) {
+          const semiRoundIdx = R - 2;
+          newMatches.push({
+            id: 'match_3rd_place',
+            round: R - 1,
+            index: 1,
+            p1: null,
+            p2: null,
+            score1: null,
+            score2: null,
+            winner: null,
+            isLocked: false,
+            p1SourceMatchId: `match_${semiRoundIdx}_0`,
+            p2SourceMatchId: `match_${semiRoundIdx}_1`,
+            destMatchId: null,
+            destParam: null,
+            side: 'center',
+            isThirdPlace: true
+          });
+        }
+
+        // Assign Left / Right Sides
+        newMatches.forEach(m => {
+          if (m.isThirdPlace) {
+            m.side = 'center';
+            return;
+          }
+          if (m.round === R - 1) {
+            m.side = 'center';
+          } else {
+            const roundCount = S / Math.pow(2, m.round + 1);
+            m.side = m.index < (roundCount / 2) ? 'left' : 'right';
+          }
+        });
+
+        // Run auto-advances for matches facing BYEs
+        newMatches.forEach(m => {
+          if (m.round === 0) {
+            if (m.p1 === null && m.p2 !== null) {
+              m.winner = m.p2;
+              m.score1 = 0;
+              m.score2 = 1;
+            } else if (m.p2 === null && m.p1 !== null) {
+              m.winner = m.p1;
+              m.score1 = 1;
+              m.score2 = 0;
+            }
+          }
+        });
+
+        // Propagate winners forward
+        const sorted = [...newMatches].sort((a, b) => a.round - b.round);
+        sorted.forEach(m => {
+          if (m.winner && m.destMatchId) {
+            const dest = newMatches.find(d => d.id === m.destMatchId);
+            if (dest && m.destParam) {
+              dest[m.destParam] = m.winner;
+            }
+          }
+          // Losers to 3rd place
+          if (!m.isThirdPlace && S >= 4 && m.round === R - 2) {
+            const isSemi0 = m.index === 0;
+            const thirdMatch = newMatches.find(t => t.isThirdPlace);
+            if (thirdMatch) {
+              const loser = m.winner ? (m.winner.id === m.p1?.id ? m.p2 : m.p1) : null;
+              if (isSemi0) {
+                thirdMatch.p1 = loser;
+              } else {
+                thirdMatch.p2 = loser;
+              }
+            }
+          }
+        });
+
+        return newMatches;
+      };
+
+      // --- CORE OPERATIONS ---
+
+      const handleAddParticipant = (name, companyId) => {
+        if (participants.some(p => p.companyId.toLowerCase() === companyId.trim().toLowerCase())) {
+          alert(`Company ID "${companyId}" is already taken.`);
+          return;
+        }
+        const newP = {
+          id: generateId(),
+          name: name.trim(),
+          companyId: companyId.trim(),
+          seed: participants.length + 1
+        };
+        const nextParts = [...participants, newP];
+        setParticipants(nextParts);
+        setShowAddPartModal(false);
+        broadcastState(nextParts, matches, status, "Participant Added", `Added "${newP.name}" (${newP.companyId})`);
+      };
+
+      const handleEditParticipant = (id, name, companyId, customSeed) => {
+        if (participants.some(p => p.id !== id && p.companyId.toLowerCase() === companyId.trim().toLowerCase())) {
+          alert(`Company ID "${companyId}" is already taken.`);
+          return;
+        }
+
+        let nextParts = participants.map(p => {
+          if (p.id === id) {
+            return {
+              ...p,
+              name: name.trim(),
+              companyId: companyId.trim(),
+              seed: customSeed !== undefined ? parseInt(customSeed) : p.seed
+            };
+          }
+          return p;
+        });
+
+        // Resolve seed collision
+        if (customSeed !== undefined) {
+          const target = nextParts.find(p => p.id === id);
+          if (target.seed < 1) target.seed = 1;
+          if (target.seed > participants.length) target.seed = participants.length;
+
+          const others = nextParts.filter(p => p.id !== id).sort((a, b) => a.seed - b.seed);
+          const usedSeeds = new Set([target.seed]);
+          let curr = 1;
+          others.forEach(o => {
+            while (usedSeeds.has(curr)) {
+              curr++;
+            }
+            o.seed = curr;
+            usedSeeds.add(curr);
+          });
+          nextParts.sort((a, b) => a.seed - b.seed);
+        }
+
+        setParticipants(nextParts);
+        setEditingPart(null);
+        broadcastState(nextParts, matches, status, "Participant Edited", `Edited details for "${name}"`);
+      };
+
+      const handleDeleteParticipant = (id) => {
+        let nextParts = participants.filter(p => p.id !== id);
+        // Reset seeds
+        nextParts.forEach((p, idx) => {
+          p.seed = idx + 1;
+        });
+        setParticipants(nextParts);
+        setEditingPart(null);
+        broadcastState(nextParts, matches, status, "Participant Deleted", "Deleted participant and reset seeds");
+      };
+
+      const handleRandomizeSeeds = () => {
+        const shuffled = [...participants];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        shuffled.forEach((p, idx) => {
+          p.seed = idx + 1;
+        });
+        setParticipants(shuffled);
+        broadcastState(shuffled, matches, status, "Seeds Randomized", "Randomized all seeds");
+      };
+
+      const handleBulkImport = (text) => {
+        const lines = text.split('\n');
+        const imported = [];
+        let seed = 1;
+        lines.forEach(line => {
+          if (!line.trim()) return;
+          const parts = line.split(/[,\t]/);
+          if (parts.length >= 2) {
+            const name = parts[0].replace(/^["']|["']$/g, '').trim();
+            const companyId = parts[1].replace(/^["']|["']$/g, '').trim();
+            if (name && companyId && !imported.some(p => p.companyId.toLowerCase() === companyId.toLowerCase())) {
+              imported.push({
+                id: generateId(),
+                name,
+                companyId,
+                seed: seed++
+              });
+            }
+          }
+        });
+        if (imported.length < 2) {
+          alert("Import needs at least 2 participants.");
+          return;
+        }
+        setParticipants(imported);
+        setShowImportModal(false);
+        // Automatically generate bracket after bulk import
+        const newMatches = generateBracketLayout(imported);
+        setMatches(newMatches);
+        setStatus('Seeded');
+        broadcastState(imported, newMatches, 'Seeded', "Bulk Import & Seeded", `Imported ${imported.length} players and generated bracket`);
+      };
+
+      const handleGenerateBracket = () => {
+        if (participants.length < 2) {
+          alert("Need at least 2 participants to generate a bracket.");
+          return;
+        }
+        const newMatches = generateBracketLayout(participants);
+        setMatches(newMatches);
+        setStatus('Seeded');
+        broadcastState(participants, newMatches, 'Seeded', "Generate Seeds", `Generated seeding bracket structure`);
+      };
+
+      const handleStartTournament = () => {
+        setStatus('Started');
+        broadcastState(participants, matches, 'Started', "Start Tournament", "Locked seeding, activated matches");
+      };
+
+      // --- UNIFIED PROPAGATION ENGINE ---
+      const propagateState = (nextMatches) => {
+        // Clear non-round-0 matches p1/p2 first (except third place which is set from semi-finals)
+        nextMatches.forEach(m => {
+          if (m.round > 0 && !m.isThirdPlace) {
+            m.p1 = null;
+            m.p2 = null;
+          }
+        });
+
+        // Run auto-advances for matches facing BYEs
+        nextMatches.forEach(m => {
+          if (m.round === 0) {
+            if (m.p1 === null && m.p2 !== null) {
+              m.winner = m.p2;
+              m.score1 = 0;
+              m.score2 = 1;
+            } else if (m.p2 === null && m.p1 !== null) {
+              m.winner = m.p1;
+              m.score1 = 1;
+              m.score2 = 0;
+            } else if (m.p1 === null && m.p2 === null) {
+              m.winner = null;
+              m.score1 = null;
+              m.score2 = null;
+            }
+          }
+        });
+
+        // Calculate bracket size S (power of 2)
+        const r0Count = nextMatches.filter(m => m.round === 0).length;
+        const S = r0Count * 2;
+        const R = Math.log2(S);
+
+        // Propagate winners forward chronologically
+        const sorted = [...nextMatches].sort((a, b) => a.round - b.round);
+        sorted.forEach(m => {
+          if (m.winner && m.destMatchId) {
+            const dest = nextMatches.find(d => d.id === m.destMatchId);
+            if (dest && m.destParam) {
+              dest[m.destParam] = m.winner;
+              // Reset winner if it's no longer matching either player
+              if (dest.winner && dest.winner.id !== dest.p1?.id && dest.winner.id !== dest.p2?.id) {
+                dest.score1 = null;
+                dest.score2 = null;
+                dest.winner = null;
+              }
+            }
+          }
+
+          // Propagate losers to third place if semi-final
+          if (!m.isThirdPlace && S >= 4 && m.round === R - 2) {
+            const isSemi0 = m.index === 0;
+            const thirdMatch = nextMatches.find(t => t.isThirdPlace);
+            if (thirdMatch) {
+              const loser = m.winner ? (m.winner.id === m.p1?.id ? m.p2 : m.p1) : null;
+              const param = isSemi0 ? 'p1' : 'p2';
+              thirdMatch[param] = loser;
+              if (thirdMatch.winner && thirdMatch.winner.id !== thirdMatch.p1?.id && thirdMatch.winner.id !== thirdMatch.p2?.id) {
+                thirdMatch.score1 = null;
+                thirdMatch.score2 = null;
+                thirdMatch.winner = null;
+              }
+            }
+          }
+        });
+      };
+
+      const handleMatchScoreUpdate = (matchId, score1, score2, forceWinnerSide) => {
+        const targetIndex = matches.findIndex(m => m.id === matchId);
+        if (targetIndex === -1) return;
+        if (matches[targetIndex].isLocked) return;
+
+        const nextMatches = JSON.parse(JSON.stringify(matches));
+        const match = nextMatches[targetIndex];
+
+        match.score1 = score1;
+        match.score2 = score2;
+
+        if (forceWinnerSide) {
+          match.winner = forceWinnerSide === 'p1' ? match.p1 : match.p2;
+        } else if (score1 !== null && score2 !== null) {
+          if (score1 > score2) match.winner = match.p1;
+          else if (score2 > score1) match.winner = match.p2;
+          else match.winner = null; // Tie
+        } else {
+          match.winner = null;
+        }
+
+        // Run unified propagation
+        propagateState(nextMatches);
+
+        // Check if tournament is Completed
+        const finalMatch = nextMatches.find(m => m.round === Math.log2(nextMatches.filter(mx => mx.round === 0).length * 2) - 1 && !m.isThirdPlace);
+        const thirdMatch = nextMatches.find(m => m.isThirdPlace);
+        let finished = finalMatch?.winner !== null;
+        if (thirdMatch && thirdMatch.winner === null && (thirdMatch.p1 || thirdMatch.p2)) {
+          finished = false;
+        }
+
+        const nextStatus = finished ? 'Completed' : 'Started';
+
+        setMatches(nextMatches);
+        setStatus(nextStatus);
+        setSelectedMatch(null);
+
+        const details = match.winner 
+          ? `Match result saved. ${match.winner.name} won.`
+          : `Match scores cleared.`;
+        broadcastState(participants, nextMatches, nextStatus, "Score Entered", details);
+      };
+
+      const handleToggleMatchLock = (matchId) => {
+        const nextMatches = matches.map(m => {
+          if (m.id === matchId) {
+            return { ...m, isLocked: !m.isLocked };
+          }
+          return m;
+        });
+        setMatches(nextMatches);
+        const locked = nextMatches.find(m => m.id === matchId).isLocked;
+        broadcastState(participants, nextMatches, status, locked ? "Match Locked" : "Match Unlocked", `Admin ${locked ? 'locked' : 'unlocked'} matchup scoring`);
+      };
+
+      const handleSwapParticipants = (m1Id, p1Param, m2Id, p2Param) => {
+        if (status !== 'Draft' && status !== 'Seeded') return;
+        const nextMatches = JSON.parse(JSON.stringify(matches));
+        const m1 = nextMatches.find(m => m.id === m1Id);
+        const m2 = nextMatches.find(m => m.id === m2Id);
+
+        if (!m1 || !m2 || m1.isLocked || m2.isLocked) return;
+
+        const temp = m1[p1Param];
+        m1[p1Param] = m2[p2Param];
+        m2[p2Param] = temp;
+
+        // Reset scores
+        m1.score1 = null; m1.score2 = null; m1.winner = null;
+        m2.score1 = null; m2.score2 = null; m2.winner = null;
+
+        propagateState(nextMatches);
+
+        setMatches(nextMatches);
+        broadcastState(participants, nextMatches, status, "Reseed Swapped", "Swapped participant seed placements");
+      };
+
+      const handleQuickAddParticipant = (matchId, paramSlot, name, companyId) => {
+        if (participants.some(p => p.companyId.toLowerCase() === companyId.trim().toLowerCase())) {
+          alert("Company ID must be unique.");
+          return;
+        }
+
+        const newP = {
+          id: generateId(),
+          name: name.trim(),
+          companyId: companyId.trim(),
+          seed: participants.length + 1
+        };
+
+        const nextParts = [...participants, newP];
+        const nextMatches = JSON.parse(JSON.stringify(matches));
+        const match = nextMatches.find(m => m.id === matchId);
+
+        if (match) {
+          match[paramSlot] = newP;
+          if (match.p1 !== null && match.p2 !== null) {
+            match.score1 = null;
+            match.score2 = null;
+            match.winner = null;
+          }
+        }
+
+        propagateState(nextMatches);
+
+        setParticipants(nextParts);
+        setMatches(nextMatches);
+        broadcastState(nextParts, nextMatches, status, "Quick Added Player", `Quick-added "${newP.name}" directly to bracket`);
+      };
+
+      const handleLateRegister = (name, companyId) => {
+        if (participants.some(p => p.companyId.toLowerCase() === companyId.trim().toLowerCase())) {
+          alert(`Company ID "${companyId}" is already taken.`);
+          return;
+        }
+
+        const newP = {
+          id: generateId(),
+          name: name.trim(),
+          companyId: companyId.trim(),
+          seed: participants.length + 1
+        };
+
+        const nextParts = [...participants, newP];
+        const nextMatches = JSON.parse(JSON.stringify(matches));
+
+        // Scenario A: Check if a BYE slot still exists
+        const isDescendantCompleted = (mId) => {
+          if (!mId) return false;
+          const curr = nextMatches.find(m => m.id === mId);
+          if (!curr) return false;
+          if (curr.winner !== null && curr.p1 !== null && curr.p2 !== null) return true;
+          return isDescendantCompleted(curr.destMatchId);
+        };
+
+        const byeMatch = nextMatches.find(m => 
+          m.round === 0 &&
+          (m.p1 === null || m.p2 === null) &&
+          !isDescendantCompleted(m.destMatchId)
+        );
+
+        if (byeMatch) {
+          if (byeMatch.p1 === null) byeMatch.p1 = newP;
+          else byeMatch.p2 = newP;
+          // Clear auto-advance
+          byeMatch.score1 = null;
+          byeMatch.score2 = null;
+          byeMatch.winner = null;
+
+          propagateState(nextMatches);
+
+          setParticipants(nextParts);
+          setMatches(nextMatches);
+          broadcastState(nextParts, nextMatches, status, "Late Added Participant", `Added "${newP.name}" directly to BYE slot.`);
+          return;
+        }
+
+        // Scenario B: Bracket Expansion
+        const oldS = nextMatches.filter(m => m.round === 0).length * 2;
+        const newS = oldS * 2;
+        const oldR = Math.log2(oldS);
+        const newR = Math.log2(newS);
+
+        const oldMatches = [...nextMatches];
+        const rebuiltMatches = [];
+
+        // 1. Shift old matches to Round r+1
+        oldMatches.forEach(m => {
+          if (m.isThirdPlace) return;
+          const shiftId = (id) => {
+            if (!id || id === 'match_3rd_place') return id;
+            const p = id.split('_');
+            return `match_${parseInt(p[1]) + 1}_${p[2]}`;
+          };
+
+          rebuiltMatches.push({
+            id: `match_${m.round + 1}_${m.index}`,
+            round: m.round + 1,
+            index: m.index,
+            p1: m.p1,
+            p2: m.p2,
+            score1: m.score1,
+            score2: m.score2,
+            winner: m.winner,
+            isLocked: m.isLocked,
+            p1SourceMatchId: m.p1SourceMatchId ? shiftId(m.p1SourceMatchId) : null,
+            p2SourceMatchId: m.p2SourceMatchId ? shiftId(m.p2SourceMatchId) : null,
+            destMatchId: null,
+            destParam: null,
+            side: m.side
+          });
+        });
+
+        // 2. Split lowest seed
+        const targetPlayer = [...participants].sort((a, b) => b.seed - a.seed)[0];
+        const targetMatchInR1 = rebuiltMatches.find(m => 
+          m.round === 1 && (m.p1?.id === targetPlayer.id || m.p2?.id === targetPlayer.id)
+        );
+
+        if (targetMatchInR1) {
+          const param = targetMatchInR1.p1?.id === targetPlayer.id ? 'p1' : 'p2';
+          targetMatchInR1[param] = null;
+          targetMatchInR1.score1 = null; targetMatchInR1.score2 = null; targetMatchInR1.winner = null;
+
+          // Create new Round 0
+          const r0Count = newS / 2;
+          for (let i = 0; i < r0Count; i++) {
+            const destIdx = Math.floor(i / 2);
+            const destParam = (i % 2 === 0) ? 'p1' : 'p2';
+            const destR1Match = rebuiltMatches.find(m => m.round === 1 && m.index === destIdx);
+
+            let p1 = null;
+            let p2 = null;
+
+            if (destIdx === targetMatchInR1.index && destParam === param) {
+              p1 = targetPlayer;
+              p2 = newP;
+            } else if (destR1Match) {
+              p1 = destR1Match[destParam];
+              p2 = null; // BYE
+            }
+
+            rebuiltMatches.push({
+              id: `match_0_${i}`,
+              round: 0,
+              index: i,
+              p1,
+              p2,
+              score1: null,
+              score2: null,
+              winner: null,
+              isLocked: false,
+              p1SourceMatchId: null,
+              p2SourceMatchId: null,
+              destMatchId: `match_1_${destIdx}`,
+              destParam,
+              side: 'left'
+            });
+          }
+        }
+
+        // Add extra round matches
+        for (let r = 2; r < newR; r++) {
+          const roundCount = newS / Math.pow(2, r + 1);
+          for (let i = 0; i < roundCount; i++) {
+            const exists = rebuiltMatches.some(m => m.round === r && m.index === i);
+            if (!exists) {
+              rebuiltMatches.push({
+                id: `match_${r}_${i}`,
+                round: r,
+                index: i,
+                p1: null,
+                p2: null,
+                score1: null,
+                score2: null,
+                winner: null,
+                isLocked: false,
+                p1SourceMatchId: `match_${r-1}_${2*i}`,
+                p2SourceMatchId: `match_${r-1}_${2*i+1}`,
+                destMatchId: null,
+                destParam: null,
+                side: 'left'
+              });
+            }
+          }
+        }
+
+        // Link
+        for (let r = 1; r < newR - 1; r++) {
+          const roundCount = newS / Math.pow(2, r + 1);
+          for (let i = 0; i < roundCount; i++) {
+            const m = rebuiltMatches.find(match => match.round === r && match.index === i);
+            if (m) {
+              const destIdx = Math.floor(i / 2);
+              m.destMatchId = `match_${r+1}_${destIdx}`;
+              m.destParam = (i % 2 === 0) ? 'p1' : 'p2';
+            }
+          }
+        }
+
+        // Third Place
+        if (newS >= 4) {
+          rebuiltMatches.push({
+            id: 'match_3rd_place',
+            round: newR - 1,
+            index: 1,
+            p1: null,
+            p2: null,
+            score1: null,
+            score2: null,
+            winner: null,
+            isLocked: false,
+            p1SourceMatchId: `match_${newR - 2}_0`,
+            p2SourceMatchId: `match_${newR - 2}_1`,
+            destMatchId: null,
+            destParam: null,
+            side: 'center',
+            isThirdPlace: true
+          });
+        }
+
+        // Sort Round 0 BYE matches
+        const finalRound0 = rebuiltMatches.filter(m => m.round === 0);
+        finalRound0.sort((a, b) => {
+          const aHasBye = (a.p1 === null || a.p2 === null);
+          const bHasBye = (b.p1 === null || b.p2 === null);
+          if (!aHasBye && bHasBye) return -1;
+          if (aHasBye && !bHasBye) return 1;
+          return a.index - b.index;
+        });
+
+        const activeMatches = rebuiltMatches.filter(m => m.round !== 0);
+        finalRound0.forEach((m, idx) => {
+          m.id = `match_0_${idx}`;
+          m.index = idx;
+
+          // Re-link destination to prevent crossed lines!
+          const destIdx = Math.floor(idx / 2);
+          m.destMatchId = `match_1_${destIdx}`;
+          m.destParam = (idx % 2 === 0) ? 'p1' : 'p2';
+
+          const dest = activeMatches.find(d => d.id === m.destMatchId);
+          if (dest) {
+            if (m.destParam === 'p1') dest.p1SourceMatchId = m.id;
+            else dest.p2SourceMatchId = m.id;
+          }
+          activeMatches.push(m);
+        });
+
+        // Set sides
+        activeMatches.forEach(m => {
+          if (m.isThirdPlace || m.round === newR - 1) {
+            m.side = 'center';
+          } else {
+            const roundCount = newS / Math.pow(2, m.round + 1);
+            m.side = m.index < (roundCount / 2) ? 'left' : 'right';
+          }
+        });
+
+        propagateState(activeMatches);
+
+        setParticipants(nextParts);
+        setMatches(activeMatches);
+        broadcastState(nextParts, activeMatches, status, "Bracket Expanded", `Late added "${newP.name}" & expanded bracket to size ${newS}`);
+      };
+
+      // --- HISTORY UNDO / REDO / REWIND ---
+
+      const handleUndo = () => {
+        if (historyIndex <= 0) return;
+        const target = historyIndex - 1;
+        const snapshot = historyLogs[target].stateSnapshot;
+        setParticipants(JSON.parse(JSON.stringify(snapshot.participants)));
+        setMatches(JSON.parse(JSON.stringify(snapshot.matches)));
+        setStatus(snapshot.status);
+        setHistoryIndex(target);
+        syncChannel.postMessage({
+          type: 'SYNC_STATE',
+          state: {
+            participants: snapshot.participants,
+            matches: snapshot.matches,
+            status: snapshot.status,
+            historyIndex: target,
+            historyLogs
+          }
+        });
+      };
+
+      const handleRedo = () => {
+        if (historyIndex >= historyLogs.length - 1) return;
+        const target = historyIndex + 1;
+        const snapshot = historyLogs[target].stateSnapshot;
+        setParticipants(JSON.parse(JSON.stringify(snapshot.participants)));
+        setMatches(JSON.parse(JSON.stringify(snapshot.matches)));
+        setStatus(snapshot.status);
+        setHistoryIndex(target);
+        syncChannel.postMessage({
+          type: 'SYNC_STATE',
+          state: {
+            participants: snapshot.participants,
+            matches: snapshot.matches,
+            status: snapshot.status,
+            historyIndex: target,
+            historyLogs
+          }
+        });
+      };
+
+      const handleRewindTo = (idx) => {
+        if (idx < 0 || idx >= historyLogs.length) return;
+        const snapshot = historyLogs[idx].stateSnapshot;
+        setParticipants(JSON.parse(JSON.stringify(snapshot.participants)));
+        setMatches(JSON.parse(JSON.stringify(snapshot.matches)));
+        setStatus(snapshot.status);
+        setHistoryIndex(idx);
+        syncChannel.postMessage({
+          type: 'SYNC_STATE',
+          state: {
+            participants: snapshot.participants,
+            matches: snapshot.matches,
+            status: snapshot.status,
+            historyIndex: idx,
+            historyLogs
+          }
+        });
+      };
+
+      const handleReset = () => {
+        if (confirm("Reset entire tournament state? This will clear all data.")) {
+          setParticipants([]);
+          setMatches([]);
+          setStatus('Draft');
+          setHistoryLogs([]);
+          setHistoryIndex(-1);
+          setHighlightedParticipantId(null);
+          // Broadcast reset
+          syncChannel.postMessage({
+            type: 'SYNC_STATE',
+            state: {
+              participants: [],
+              matches: [],
+              status: 'Draft',
+              historyIndex: -1,
+              historyLogs: []
+            }
+          });
+        }
+      };
+
+      // Export to CSV
+      const handleExportCSV = () => {
+        let csvContent = "data:text/csv;charset=utf-8,Seed,Participant Name,Company ID\n";
+        participants.forEach(p => {
+          csvContent += `${p.seed},"${p.name}","${p.companyId}"\n`;
+        });
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `tournament_participants_${Date.now()}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
+
+      // --- PAN & ZOOM CANVAS CONTROL ---
+      const handleMouseDown = (e) => {
+        if (e.target.closest('.match-card') || e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+        isDraggingRef.current = true;
+        dragStartRef.current = { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y };
+      };
+
+      const handleMouseMove = (e) => {
+        if (!isDraggingRef.current) return;
+        setPanOffset({
+          x: e.clientX - dragStartRef.current.x,
+          y: e.clientY - dragStartRef.current.y
+        });
+      };
+
+      const handleMouseUp = () => {
+        isDraggingRef.current = false;
+      };
+
+      const handleWheel = (e) => {
+        e.preventDefault();
+        const zoomSpeed = 0.05;
+        let factor = e.deltaY < 0 ? (1 + zoomSpeed) : (1 - zoomSpeed);
+        let nextZoom = Math.round(zoomPercent * factor);
+        if (nextZoom < 25) nextZoom = 25;
+        if (nextZoom > 300) nextZoom = 300;
+        setZoomPercent(nextZoom);
+      };
+
+      // Fit to Screen Calculation
+      const handleFitToScreen = () => {
+        if (viewportRef.current && canvasRef.current) {
+          const viewWidth = viewportRef.current.clientWidth;
+          const viewHeight = viewportRef.current.clientHeight;
+          const canvasWidth = canvasRef.current.scrollWidth || 1000;
+          const canvasHeight = canvasRef.current.scrollHeight || 600;
+
+          const scaleX = viewWidth / (canvasWidth + 100);
+          const scaleY = viewHeight / (canvasHeight + 100);
+          let scale = Math.min(scaleX, scaleY);
+          if (scale < 0.25) scale = 0.25;
+          if (scale > 2) scale = 2;
+
+          setZoomPercent(Math.round(scale * 100));
+          setPanOffset({
+            x: (viewWidth - canvasWidth * scale) / 2,
+            y: (viewHeight - canvasHeight * scale) / 2
+          });
+        }
+      };
+
+      const handleRecenter = () => {
+        setZoomPercent(100);
+        if (viewportRef.current && canvasRef.current) {
+          const viewWidth = viewportRef.current.clientWidth;
+          const viewHeight = viewportRef.current.clientHeight;
+          setPanOffset({
+            x: (viewWidth - 900) / 2,
+            y: (viewHeight - 500) / 2
+          });
+        } else {
+          setPanOffset({ x: 0, y: 0 });
+        }
+      };
+
+      // Auto-locate and scroll to matchup on search highlight
+      const handleLocateParticipant = (partId) => {
+        setHighlightedParticipantId(partId);
+        if (!partId) return;
+
+        // Find current active match for this participant
+        const playerMatch = matches.find(m => 
+          (m.p1?.id === partId || m.p2?.id === partId) &&
+          m.winner === null
+        ) || matches.find(m => 
+          (m.p1?.id === partId || m.p2?.id === partId)
+        );
+
+        if (playerMatch && viewportRef.current) {
+          // Approximate layout position
+          // Left side: rounds grow rightwards. Right side: rounds grow leftwards.
+          const maxRounds = matches.length > 0 ? Math.log2(matches.filter(mx => mx.round === 0).length * 2) : 1;
+          const isLeft = playerMatch.side === 'left';
+          const isCenter = playerMatch.side === 'center';
+          const is3rd = playerMatch.isThirdPlace;
+
+          let posX = 0;
+          if (isCenter) {
+            posX = 500;
+          } else if (isLeft) {
+            posX = playerMatch.round * 280 + 100;
+          } else {
+            posX = 1000 - (playerMatch.round * 280);
+          }
+
+          let posY = playerMatch.index * 120 + 100;
+          if (is3rd) posY += 150;
+
+          // Pan to place match in center of viewport
+          const viewW = viewportRef.current.clientWidth;
+          const viewH = viewportRef.current.clientHeight;
+
+          setZoomPercent(100);
+          setPanOffset({
+            x: (viewW / 2) - posX,
+            y: (viewH / 2) - posY
+          });
+        }
+      };
+
+      // --- PATH TRACKING UTILITIES ---
+      // Get all match IDs that this participant plays in or can progress to
+      const pathHighlightMatches = useMemo(() => {
+        if (!highlightedParticipantId) return new Set();
+        const ids = new Set();
+        let currentPId = highlightedParticipantId;
+
+        // Trace forward through matches
+        matches.forEach(m => {
+          if (m.p1?.id === currentPId || m.p2?.id === currentPId) {
+            ids.add(m.id);
+          }
+        });
+
+        return ids;
+      }, [highlightedParticipantId, matches]);
+
+      // Get history timeline & opponent details for highlighted participant
+      const participantTrackingLogs = useMemo(() => {
+        if (!highlightedParticipantId) return null;
+        const p = participants.find(part => part.id === highlightedParticipantId);
+        if (!p) return null;
+
+        const playerMatches = matches.filter(m => m.p1?.id === p.id || m.p2?.id === p.id);
+        const history = playerMatches.map(m => {
+          const opponent = m.p1?.id === p.id ? m.p2 : m.p1;
+          let statusStr = "Scheduled";
+          if (m.winner) {
+            statusStr = m.winner.id === p.id ? "Won" : "Lost";
+          }
+          return {
+            roundName: m.isThirdPlace ? "Third Place Match" : `Round ${m.round + 1}`,
+            opponent: opponent ? `${opponent.name} (${opponent.companyId})` : 'BYE',
+            score: m.score1 !== null ? `${m.score1} - ${m.score2}` : 'Not played',
+            status: statusStr
+          };
+        });
+
+        // Determine current standing
+        let standing = "Active";
+        const lostMatch = playerMatches.find(m => m.winner && m.winner.id !== p.id);
+        if (lostMatch) {
+          standing = lostMatch.isThirdPlace ? "4th Place" : "Eliminated";
+        }
+        const finalMatch = matches.find(m => m.round === Math.log2(matches.filter(mx => mx.round === 0).length * 2) - 1 && !m.isThirdPlace);
+        if (finalMatch?.winner?.id === p.id) {
+          standing = "🥇 Champion";
+        }
+        const thirdPlaceMatch = matches.find(m => m.isThirdPlace);
+        if (thirdPlaceMatch?.winner?.id === p.id) {
+          standing = "🥉 3rd Place";
+        }
+
+        return {
+          participant: p,
+          standing,
+          history
+        };
+      }, [highlightedParticipantId, matches, participants]);
+
+      // --- RENDERING VARS ---
+      const totalRounds = useMemo(() => {
+        const r0Count = matches.filter(m => m.round === 0).length;
+        return r0Count > 0 ? Math.log2(r0Count * 2) : 0;
+      }, [matches]);
+
+      const roundMatchesMap = useMemo(() => {
+        const map = {};
+        for (let r = 0; r < totalRounds; r++) {
+          map[r] = matches.filter(m => m.round === r && !m.isThirdPlace);
+        }
+        return map;
+      }, [matches, totalRounds]);
+
+      const thirdPlaceMatchObj = useMemo(() => {
+        return matches.find(m => m.isThirdPlace);
+      }, [matches]);
+
+      // Search filters
+      const filteredParticipants = useMemo(() => {
+        if (!searchQuery) return participants;
+        return participants.filter(p => 
+          p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          p.companyId.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+      }, [participants, searchQuery]);
+
+      return (
+        <div class="h-full w-full flex flex-col bg-white">
+          
+          {/* TOP HEADER */}
+          <header class="bg-white border-b border-border px-6 py-4 flex flex-wrap items-center justify-between z-10 shrink-0">
+            <div class="flex items-center gap-3">
+              <span class="text-2xl">🏆</span>
+              <h1 class="text-xl font-bold tracking-tight text-textPrimary">Tournament Bracket Pro</h1>
+              <span class={`ml-3 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                status === 'Draft' ? 'bg-gray-100 text-gray-800' :
+                status === 'Seeded' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                status === 'Started' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                'bg-amber-50 text-amber-700 border border-amber-200'
+              }`}>
+                {status}
+              </span>
+            </div>
+
+            {/* HEADER ACTIONS */}
+            <div class="flex items-center gap-4 mt-2 sm:mt-0">
+              
+              {/* Admin Mode Toggle */}
+              <div class="flex items-center bg-surface border border-border p-1 rounded-lg">
+                <button 
+                  onClick={() => setIsAdmin(false)} 
+                  class={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${!isAdmin ? 'bg-white shadow text-accent' : 'text-textSecondary hover:text-textPrimary'}`}
+                >
+                  Viewer Mode
+                </button>
+                <button 
+                  onClick={() => setIsAdmin(true)} 
+                  class={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${isAdmin ? 'bg-white shadow text-accent' : 'text-textSecondary hover:text-textPrimary'}`}
+                >
+                  Admin Edit
+                </button>
+              </div>
+
+              {/* Undo / Redo controls */}
+              {isAdmin && (
+                <div class="flex items-center border border-border rounded-lg bg-surface">
+                  <button 
+                    disabled={historyIndex <= 0} 
+                    onClick={handleUndo} 
+                    class="p-2 hover:bg-white rounded-l-lg disabled:opacity-40 disabled:hover:bg-transparent"
+                    title="Undo"
+                  >
+                    ↩️
+                  </button>
+                  <div class="w-px h-5 bg-border"></div>
+                  <button 
+                    disabled={historyIndex >= historyLogs.length - 1} 
+                    onClick={handleRedo} 
+                    class="p-2 hover:bg-white rounded-r-lg disabled:opacity-40 disabled:hover:bg-transparent"
+                    title="Redo"
+                  >
+                    ↪️
+                  </button>
+                </div>
+              )}
+
+              {/* Reset state */}
+              {isAdmin && (
+                <button 
+                  onClick={handleReset}
+                  class="px-3 py-2 text-xs font-semibold border border-error/20 text-error hover:bg-error/5 rounded-lg transition"
+                >
+                  Reset
+                </button>
+              )}
+
+              {/* Share url button */}
+              <button 
+                onClick={() => {
+                  const url = `${window.location.origin}${window.location.pathname}?mode=${isAdmin ? 'admin' : 'viewer'}`;
+                  navigator.clipboard.writeText(url);
+                  alert("Shareable tournament URL copied to clipboard!");
+                }}
+                class="px-3 py-2 text-xs font-semibold border border-border text-textPrimary hover:bg-surface rounded-lg flex items-center gap-1.5"
+              >
+                🔗 Share Link
+              </button>
+            </div>
+          </header>
+
+          {/* MAIN WORKSPACE GRID */}
+          <div class="flex-grow flex overflow-hidden relative">
+            
+            {/* LEFT SIDEBAR - PARTICIPANT MANAGEMENT */}
+            <aside class={`bg-white border-r border-border flex flex-col shrink-0 transition-all duration-300 ${
+              sidebarLeftOpen ? 'w-80' : 'w-0 overflow-hidden border-none'
+            } hidden md:flex`}>
+              <div class="p-5 border-b border-border flex flex-col gap-4">
+                <div class="flex items-center justify-between">
+                  <h2 class="font-bold text-sm text-textPrimary tracking-wide uppercase">Participants Directory</h2>
+                  <span class="text-xs text-textSecondary bg-surface px-2 py-0.5 rounded font-mono">
+                    Qty: {participants.length}
+                  </span>
+                </div>
+                
+                {/* Search Bar */}
+                <input 
+                  type="text" 
+                  placeholder="Filter directory by name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  class="w-full text-sm border border-border rounded-lg px-3 py-2 outline-none focus:border-accent bg-surface"
+                />
+
+                {/* Left actions */}
+                {isAdmin && status === 'Draft' && (
+                  <div class="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => setShowAddPartModal(true)} 
+                      class="px-2.5 py-2 text-xs font-semibold bg-accent text-white hover:bg-accent/90 rounded-lg shadow-sm transition"
+                    >
+                      ➕ Add Player
+                    </button>
+                    <button 
+                      onClick={() => setShowImportModal(true)} 
+                      class="px-2.5 py-2 text-xs font-semibold border border-border hover:bg-surface rounded-lg transition"
+                    >
+                      📥 Bulk CSV
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Participants Directory List */}
+              <div class="flex-grow overflow-y-auto p-4">
+                {filteredParticipants.length === 0 ? (
+                  <div class="text-center py-8 text-sm text-textSecondary">No participants found</div>
+                ) : (
+                  <div class="space-y-1.5">
+                    {filteredParticipants.map(p => (
+                      <div 
+                        key={p.id}
+                        onClick={() => handleLocateParticipant(p.id)}
+                        class={`p-3 rounded-lg border text-left transition flex items-center justify-between cursor-pointer ${
+                          highlightedParticipantId === p.id 
+                            ? 'border-accent bg-accent/5' 
+                            : 'border-border hover:bg-surface'
+                        }`}
+                      >
+                        <div class="flex flex-col min-w-0 pr-2">
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-accent font-mono">#{p.seed}</span>
+                            <span class="text-sm font-semibold truncate text-textPrimary">{p.name}</span>
+                          </div>
+                          <span class="text-xs text-textSecondary font-mono">{p.companyId}</span>
+                        </div>
+                        {isAdmin && status === 'Draft' && (
+                          <div class="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            <button 
+                              onClick={() => setEditingPart(p)}
+                              class="p-1 hover:bg-border rounded text-xs"
+                              title="Edit Seed/Details"
+                            >
+                              ✏️
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteParticipant(p.id)}
+                              class="p-1 hover:bg-red-50 text-error rounded text-xs"
+                              title="Delete Player"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Seed generation start bracket bar */}
+              {isAdmin && (
+                <div class="p-4 border-t border-border bg-surface shrink-0">
+                  {status === 'Draft' ? (
+                    <div class="flex flex-col gap-2">
+                      <button 
+                        onClick={handleRandomizeSeeds}
+                        class="w-full py-2 text-xs font-bold text-textPrimary border border-border hover:bg-white bg-transparent rounded-lg shadow-sm transition"
+                      >
+                        🔀 Randomize Seeds
+                      </button>
+                      <button 
+                        onClick={handleGenerateBracket}
+                        class="w-full py-2.5 text-xs font-bold text-white bg-accent hover:bg-accent/90 rounded-lg shadow transition"
+                      >
+                        ⚡ Generate Seeding Bracket
+                      </button>
+                    </div>
+                  ) : status === 'Seeded' ? (
+                    <button 
+                      onClick={handleStartTournament}
+                      class="w-full py-3 text-xs font-bold text-white bg-success hover:bg-success/90 rounded-lg shadow-lg tracking-wider uppercase transition"
+                    >
+                      ▶️ Start Tournament
+                    </button>
+                  ) : (
+                    <div class="text-center py-2 text-xs font-bold text-textSecondary uppercase tracking-widest">
+                      Tournament Active
+                    </div>
+                  )}
+                </div>
+              )}
+            </aside>
+
+            {/* BRACKET CANVAS CONTAINER */}
+            <main class="flex-grow flex flex-col overflow-hidden relative bg-surface">
+              
+              {/* TOP TOOLBAR */}
+              <div class="bg-white border-b border-border px-4 py-2 flex items-center justify-between shrink-0 z-10">
+                <div class="flex items-center gap-2">
+                  <button 
+                    onClick={() => setSidebarLeftOpen(o => !o)}
+                    class="p-2 hover:bg-surface rounded-lg border border-border hidden md:inline-block"
+                    title="Toggle Left Sidebar"
+                  >
+                    📂
+                  </button>
+                  
+                  {/* Single/Double Sided Bracket toggle */}
+                  {matches.length > 0 && (
+                    <div class="flex border border-border rounded-lg bg-surface p-0.5">
+                      <button 
+                        onClick={() => setLayoutMode('Single')} 
+                        class={`px-3 py-1 text-xs font-semibold rounded-md transition ${layoutMode === 'Single' ? 'bg-white shadow text-textPrimary' : 'text-textSecondary hover:text-textPrimary'}`}
+                      >
+                        Single Sided
+                      </button>
+                      <button 
+                        onClick={() => setLayoutMode('Double')} 
+                        class={`px-3 py-1 text-xs font-semibold rounded-md transition ${layoutMode === 'Double' ? 'bg-white shadow text-textPrimary' : 'text-textSecondary hover:text-textPrimary'}`}
+                      >
+                        Double Sided
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* ZOOM DROPDOWN CONTROLS */}
+                <div class="flex items-center gap-2">
+                  <select 
+                    value={zoomPercent}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'fit') handleFitToScreen();
+                      else if (val === 'center') handleRecenter();
+                      else setZoomPercent(parseInt(val));
+                    }}
+                    class="border border-border rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white outline-none focus:border-accent"
+                  >
+                    <option value="fit">Fit to Screen</option>
+                    <option value="center">Center Bracket</option>
+                    <option value="25">25%</option>
+                    <option value="50">50%</option>
+                    <option value="75">75%</option>
+                    <option value="100">100%</option>
+                    <option value="125">125%</option>
+                    <option value="150">150%</option>
+                    <option value="200">200%</option>
+                    <option value="300">300%</option>
+                  </select>
+
+                  <button 
+                    onClick={handleRecenter}
+                    class="p-2 border border-border rounded-lg hover:bg-surface text-xs"
+                    title="Recenter"
+                  >
+                    🎯
+                  </button>
+
+                  <button 
+                    onClick={handleExportCSV}
+                    class="px-2.5 py-1.5 text-xs font-semibold border border-border hover:bg-surface rounded-lg flex items-center gap-1"
+                  >
+                    📥 Export CSV
+                  </button>
+                </div>
+              </div>
+
+              {/* VIEWPORT CONTROLS */}
+              <div 
+                ref={viewportRef}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                onWheel={handleWheel}
+                class="flex-grow overflow-hidden relative cursor-grab active:cursor-grabbing outline-none"
+              >
+                
+                {/* INTERACTIVE ZOOMABLE INNER CANVAS */}
+                <div 
+                  ref={canvasRef}
+                  style={{
+                    transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomPercent / 100})`,
+                    transformOrigin: '0 0',
+                  }}
+                  class="absolute w-[3000px] h-[2000px] pointer-events-none select-none transition-transform duration-75"
+                >
+                  
+                  {/* SVG CONNECTORS LAYER */}
+                  {matches.length > 0 && (
+                    <SvgConnectors 
+                      matches={matches} 
+                      layoutMode={layoutMode} 
+                      totalRounds={totalRounds}
+                      highlightedMatches={pathHighlightMatches}
+                    />
+                  )}
+
+                  {/* DOM MATCH CARD BLOCKS */}
+                  <div class="absolute inset-0 pointer-events-auto">
+                    {matches.length === 0 ? (
+                      <div class="absolute left-1/2 top-1/3 transform -translate-x-1/2 text-center flex flex-col items-center max-w-sm pointer-events-none">
+                        <span class="text-5xl mb-4">🎯</span>
+                        <h3 class="font-bold text-lg text-textPrimary mb-1">No Seeding Bracket Found</h3>
+                        <p class="text-textSecondary text-sm mb-4">Please add players in the participants directory on the left and click "Generate Seeding Bracket".</p>
+                      </div>
+                    ) : (
+                      <BracketNodesRenderer 
+                        matches={matches}
+                        layoutMode={layoutMode}
+                        totalRounds={totalRounds}
+                        roundMatchesMap={roundMatchesMap}
+                        thirdPlaceMatchObj={thirdPlaceMatchObj}
+                        isAdmin={isAdmin}
+                        status={status}
+                        highlightedParticipantId={highlightedParticipantId}
+                        onCardClick={(m) => {
+                          if (isAdmin && status === 'Started') setSelectedMatch(m);
+                          else if (m.p1 || m.p2) {
+                            // Highlights history tracker details
+                            if (m.p1) handleLocateParticipant(m.p1.id);
+                            else if (m.p2) handleLocateParticipant(m.p2.id);
+                          }
+                        }}
+                        onSwap={handleSwapParticipants}
+                        onQuickAdd={handleQuickAddParticipant}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* MOBILE BOTTOM NAVIGATION TAB BAR */}
+              <div class="md:hidden border-t border-border bg-white grid grid-cols-4 shrink-0 z-10 text-center">
+                {[
+                  { id: 'bracket', name: 'Bracket', icon: '🏆' },
+                  { id: 'participants', name: 'Directory', icon: '👥' },
+                  { id: 'search', name: 'Locator', icon: '🔍' },
+                  { id: 'history', name: 'Timeline', icon: '📜' }
+                ].map(tab => (
+                  <button 
+                    key={tab.id}
+                    onClick={() => setActiveMobileTab(tab.id)}
+                    class={`py-3 flex flex-col items-center text-xs font-semibold ${
+                      activeMobileTab === tab.id ? 'text-accent border-t-2 border-accent' : 'text-textSecondary'
+                    }`}
+                  >
+                    <span>{tab.icon}</span>
+                    <span class="mt-0.5">{tab.name}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* FLOATING ACTION BUTTON (MOBILE MODE ONLY) */}
+              {isAdmin && status === 'Draft' && (
+                <button 
+                  onClick={() => setShowAddPartModal(true)}
+                  class="md:hidden fixed right-6 bottom-16 bg-accent text-white p-4 rounded-full shadow-lg z-20 flex items-center justify-center font-bold text-xl hover:scale-105 active:scale-95 transition"
+                >
+                  ➕
+                </button>
+              )}
+            </main>
+
+            {/* RIGHT SIDEBAR - MATCH DETAILS & TIMELINE HISTORY */}
+            <aside class={`bg-white border-l border-border flex flex-col shrink-0 transition-all duration-300 ${
+              sidebarRightOpen ? 'w-80' : 'w-0 overflow-hidden border-none'
+            } hidden md:flex`}>
+              
+              <div class="flex-grow flex flex-col divide-y divide-border overflow-y-auto">
+                
+                {/* 1. PARTICIPANT DETAILED TRACKING PATH DISPLAY */}
+                <div class="p-5 flex flex-col gap-4">
+                  <div class="flex items-center justify-between">
+                    <h3 class="font-bold text-sm text-textPrimary tracking-wide uppercase">Participant Tracking</h3>
+                    {highlightedParticipantId && (
+                      <button 
+                        onClick={() => handleLocateParticipant(null)} 
+                        class="text-xs text-textSecondary hover:text-accent font-semibold"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  {!participantTrackingLogs ? (
+                    <div class="text-sm text-textSecondary py-4 bg-surface rounded-lg px-4 border border-dashed border-border text-center">
+                      Select a player in the directory or bracket card to locate and track their matchup path.
+                    </div>
+                  ) : (
+                    <div class="space-y-3">
+                      <div class="bg-accent/5 border border-accent/20 rounded-lg p-4">
+                        <h4 class="font-bold text-textPrimary text-base">{participantTrackingLogs.participant.name}</h4>
+                        <p class="text-xs text-textSecondary font-mono mt-0.5">{participantTrackingLogs.participant.companyId}</p>
+                        
+                        <div class="mt-3 flex justify-between items-center text-xs">
+                          <span class="text-textSecondary">Seed: <b>#{participantTrackingLogs.participant.seed}</b></span>
+                          <span class={`px-2 py-0.5 rounded-full font-bold uppercase ${
+                            participantTrackingLogs.standing.includes('Champion') ? 'bg-yellow-100 text-yellow-800' :
+                            participantTrackingLogs.standing.includes('3rd') ? 'bg-amber-100 text-amber-800' :
+                            participantTrackingLogs.standing === 'Active' ? 'bg-emerald-100 text-emerald-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {participantTrackingLogs.standing}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Opponent list timeline */}
+                      <div class="space-y-2">
+                        <h5 class="text-xs font-bold text-textSecondary uppercase">Opponent Matches</h5>
+                        {participantTrackingLogs.history.length === 0 ? (
+                          <p class="text-xs text-textSecondary">No matches scheduled yet.</p>
+                        ) : (
+                          <div class="space-y-1.5">
+                            {participantTrackingLogs.history.map((h, i) => (
+                              <div key={i} class="p-2 border border-border rounded bg-surface flex justify-between text-xs items-center">
+                                <div>
+                                  <div class="font-semibold text-textPrimary">{h.roundName}</div>
+                                  <div class="text-textSecondary text-[10px]">Opponent: {h.opponent}</div>
+                                </div>
+                                <div class="text-right shrink-0">
+                                  <div class="font-mono text-textPrimary font-semibold">{h.score}</div>
+                                  <span class={`text-[10px] font-bold ${
+                                    h.status === 'Won' ? 'text-success' :
+                                    h.status === 'Lost' ? 'text-error' :
+                                    'text-textSecondary'
+                                  }`}>{h.status}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick-add participant helper inside Started tournament status */}
+                  {isAdmin && status === 'Started' && (
+                    <div class="border-t border-border pt-4">
+                      <h4 class="text-xs font-bold text-textSecondary uppercase mb-2">Late Registration Add</h4>
+                      <LateRegisterForm onLateAdd={handleLateRegister} />
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. HISTORY TIMELINE PANEL */}
+                <div class="p-5 flex-grow flex flex-col overflow-hidden">
+                  <div class="flex items-center justify-between mb-3">
+                    <h3 class="font-bold text-sm text-textPrimary tracking-wide uppercase">Rewind Audit Trail</h3>
+                    <span class="text-xs text-textSecondary">Events: {historyLogs.length}</span>
+                  </div>
+
+                  <div class="flex-grow overflow-y-auto pr-1 space-y-3">
+                    {historyLogs.map((log, idx) => (
+                      <div 
+                        key={idx}
+                        onClick={() => isAdmin && handleRewindTo(idx)}
+                        class={`p-3 border rounded-lg text-left transition relative cursor-pointer ${
+                          idx === historyIndex 
+                            ? 'border-accent bg-accent/5 ring-1 ring-accent' 
+                            : 'border-border hover:bg-surface'
+                        }`}
+                      >
+                        <div class="flex items-center justify-between mb-1">
+                          <span class="text-xs font-bold text-textPrimary">{log.action}</span>
+                          <span class="text-[10px] text-textSecondary font-mono">
+                            {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        </div>
+                        <p class="text-xs text-textSecondary leading-snug">{log.details}</p>
+                        
+                        {idx === historyIndex && (
+                          <span class="absolute top-2 right-2 text-[8px] bg-accent text-white px-1 rounded uppercase font-bold">
+                            Current
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+              
+              <div class="p-4 border-t border-border bg-surface flex items-center justify-between shrink-0">
+                <button 
+                  onClick={() => setSidebarRightOpen(o => !o)}
+                  class="p-2 border border-border bg-white rounded-lg hover:bg-surface text-xs w-full text-center font-bold"
+                >
+                  Collapse Side Panel
+                </button>
+              </div>
+            </aside>
+            
+          </div>
+
+          {/* MOBILE DRAWERS OVERLAY */}
+          {activeMobileTab !== 'bracket' && (
+            <div class="fixed inset-0 bg-black/40 z-30 md:hidden flex justify-end">
+              <div class="w-4/5 max-w-sm bg-white h-full flex flex-col p-5 animate-slide-in relative">
+                
+                {/* Close Overlay */}
+                <button 
+                  onClick={() => setActiveMobileTab('bracket')}
+                  class="absolute top-4 right-4 text-gray-500 hover:text-black font-bold text-lg"
+                >
+                  ❌
+                </button>
+
+                {/* Mobile directory tab */}
+                {activeMobileTab === 'participants' && (
+                  <div class="flex flex-col h-full">
+                    <h3 class="font-bold text-base mb-4 uppercase text-textPrimary tracking-wide">Participants Directory</h3>
+                    <input 
+                      type="text" 
+                      placeholder="Filter directory by name..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      class="text-sm border border-border rounded-lg px-3 py-2 outline-none focus:border-accent bg-surface mb-3"
+                    />
+
+                    {isAdmin && status === 'Draft' && (
+                      <div class="grid grid-cols-2 gap-2 mb-3">
+                        <button onClick={() => { setShowAddPartModal(true); setActiveMobileTab('bracket'); }} class="py-2 text-xs font-semibold bg-accent text-white rounded">Add Player</button>
+                        <button onClick={() => { setShowImportModal(true); setActiveMobileTab('bracket'); }} class="py-2 text-xs font-semibold border border-border rounded">Bulk CSV</button>
+                      </div>
+                    )}
+
+                    <div class="flex-grow overflow-y-auto space-y-1.5">
+                      {filteredParticipants.map(p => (
+                        <div 
+                          key={p.id} 
+                          onClick={() => { handleLocateParticipant(p.id); setActiveMobileTab('bracket'); }}
+                          class="p-3 border border-border rounded-lg bg-surface flex justify-between items-center"
+                        >
+                          <div>
+                            <div class="text-sm font-semibold text-textPrimary">#{p.seed} {p.name}</div>
+                            <div class="text-xs text-textSecondary font-mono">{p.companyId}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {isAdmin && (
+                      <div class="mt-4 pt-3 border-t border-border">
+                        {status === 'Draft' ? (
+                          <button onClick={() => { handleGenerateBracket(); setActiveMobileTab('bracket'); }} class="w-full py-2 bg-accent text-white text-xs font-bold rounded">Generate Bracket</button>
+                        ) : status === 'Seeded' ? (
+                          <button onClick={() => { handleStartTournament(); setActiveMobileTab('bracket'); }} class="w-full py-2 bg-success text-white text-xs font-bold rounded uppercase">Start Tournament</button>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Mobile search locator tab */}
+                {activeMobileTab === 'search' && (
+                  <div class="flex flex-col h-full">
+                    <h3 class="font-bold text-base mb-4 uppercase text-textPrimary">Locator Path Tracker</h3>
+                    {!participantTrackingLogs ? (
+                      <div class="space-y-4">
+                        <p class="text-sm text-textSecondary">Select a participant below to display their path:</p>
+                        <div class="space-y-1.5 overflow-y-auto max-h-[60vh]">
+                          {participants.map(p => (
+                            <button 
+                              key={p.id} 
+                              onClick={() => handleLocateParticipant(p.id)}
+                              class="w-full p-2.5 border border-border rounded bg-surface hover:bg-accent/5 text-left text-xs font-semibold truncate"
+                            >
+                              #{p.seed} {p.name} ({p.companyId})
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div class="space-y-4 overflow-y-auto h-full">
+                        <div class="bg-accent/5 border border-accent/20 rounded p-3 text-xs">
+                          <h4 class="font-bold text-textPrimary text-sm">{participantTrackingLogs.participant.name}</h4>
+                          <span class="font-mono text-textSecondary">{participantTrackingLogs.participant.companyId}</span>
+                          <div class="flex justify-between items-center mt-2">
+                            <span>Seed: #{participantTrackingLogs.participant.seed}</span>
+                            <span class="font-bold text-accent uppercase">{participantTrackingLogs.standing}</span>
+                          </div>
+                        </div>
+
+                        <div class="space-y-2">
+                          <h5 class="text-xs font-bold uppercase text-textSecondary">Opponent List</h5>
+                          {participantTrackingLogs.history.map((h, idx) => (
+                            <div key={idx} class="p-2 border border-border rounded bg-surface flex justify-between text-xs">
+                              <div>
+                                <div class="font-bold text-textPrimary">{h.roundName}</div>
+                                <div class="text-textSecondary text-[10px]">Opponent: {h.opponent}</div>
+                              </div>
+                              <div class="text-right">
+                                <div class="font-mono font-bold text-textPrimary">{h.score}</div>
+                                <span class="text-[10px] text-accent font-semibold">{h.status}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button 
+                          onClick={() => handleLocateParticipant(null)}
+                          class="w-full py-2 border border-border text-xs rounded hover:bg-surface font-semibold"
+                        >
+                          Clear Selection
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Mobile history logs tab */}
+                {activeMobileTab === 'history' && (
+                  <div class="flex flex-col h-full">
+                    <h3 class="font-bold text-base mb-4 uppercase text-textPrimary">Rewind Timeline</h3>
+                    <div class="flex-grow overflow-y-auto space-y-2">
+                      {historyLogs.map((log, idx) => (
+                        <div 
+                          key={idx}
+                          onClick={() => { if (isAdmin) { handleRewindTo(idx); setActiveMobileTab('bracket'); } }}
+                          class={`p-3 border rounded-lg text-left text-xs ${
+                            idx === historyIndex ? 'border-accent bg-accent/5 ring-1 ring-accent' : 'border-border'
+                          }`}
+                        >
+                          <div class="flex justify-between font-bold mb-1">
+                            <span>{log.action}</span>
+                            <span class="text-textSecondary font-mono">{new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <p class="text-[11px] text-textSecondary">{log.details}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          )}
+
+          {/* MODAL: MATCH RESULT SCORING (ADMIN ONLY) */}
+          {selectedMatch && (
+            <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-up border border-border">
+                <div class="flex items-center justify-between border-b border-border pb-4 mb-4">
+                  <h3 class="font-bold text-base text-textPrimary flex items-center gap-1.5">
+                    Match Details 
+                    <span class="text-xs font-mono bg-surface border border-border px-2 py-0.5 rounded font-normal text-textSecondary">
+                      {selectedMatch.isThirdPlace ? 'Third Place Match' : `Round ${selectedMatch.round + 1}`}
+                    </span>
+                  </h3>
+                  <button onClick={() => setSelectedMatch(null)} class="text-gray-500 hover:text-black font-bold">❌</button>
+                </div>
+
+                <MatchScoreForm 
+                  match={matches.find(m => m.id === selectedMatch.id) || selectedMatch} 
+                  onSave={(s1, s2, forceWin) => handleMatchScoreUpdate(selectedMatch.id, s1, s2, forceWin)}
+                  onCancel={() => setSelectedMatch(null)}
+                  onLockToggle={() => handleToggleMatchLock(selectedMatch.id)}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* MODAL: ADD PARTICIPANT */}
+          {showAddPartModal && (
+            <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 border border-border">
+                <div class="flex items-center justify-between border-b border-border pb-3 mb-4">
+                  <h3 class="font-bold text-base text-textPrimary">Add Participant</h3>
+                  <button onClick={() => setShowAddPartModal(false)} class="text-gray-500 hover:text-black font-bold">❌</button>
+                </div>
+                <ParticipantForm 
+                  onSave={handleAddParticipant} 
+                  onCancel={() => setShowAddPartModal(false)} 
+                />
+              </div>
+            </div>
+          )}
+
+          {/* MODAL: BULK CSV IMPORT */}
+          {showImportModal && (
+            <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 border border-border">
+                <div class="flex items-center justify-between border-b border-border pb-3 mb-4">
+                  <h3 class="font-bold text-base text-textPrimary">Bulk Import Participants</h3>
+                  <button onClick={() => setShowImportModal(false)} class="text-gray-500 hover:text-black font-bold">❌</button>
+                </div>
+                
+                <p class="text-xs text-textSecondary mb-3">
+                  Paste values below, formatted as one record per line: <strong>Participant Name, Company ID</strong>
+                </p>
+                <pre class="bg-surface text-[10px] p-2 rounded-lg font-mono text-textSecondary mb-4">
+John Doe, COMP001
+Jane Smith, COMP002
+Alice Cooper, COMP003
+                </pre>
+
+                <BulkImportForm 
+                  onImport={handleBulkImport} 
+                  onCancel={() => setShowImportModal(false)} 
+                />
+              </div>
+            </div>
+          )}
+
+          {/* MODAL: EDIT PARTICIPANT FROM DIRECTORY */}
+          {editingPart && (
+            <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 border border-border">
+                <div class="flex items-center justify-between border-b border-border pb-3 mb-4">
+                  <h3 class="font-bold text-base text-textPrimary">Edit Participant</h3>
+                  <button onClick={() => setEditingPart(null)} class="text-gray-500 hover:text-black font-bold">❌</button>
+                </div>
+                <ParticipantForm 
+                  participant={editingPart}
+                  onSave={(name, companyId, seed) => handleEditParticipant(editingPart.id, name, companyId, seed)} 
+                  onCancel={() => setEditingPart(null)} 
+                />
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    // --- COMPONENT: LATE REGISTER FORM ---
+    function LateRegisterForm({ onLateAdd }) {
+      const [name, setName] = useState('');
+      const [companyId, setCompanyId] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!name || !companyId) return;
+        onLateAdd(name, companyId);
+        setName('');
+        setCompanyId('');
+      };
+
+      return (
+        <form onSubmit={handleSubmit} class="space-y-2">
+          <input 
+            type="text" 
+            placeholder="Player Name" 
+            value={name} 
+            onChange={e => setName(e.target.value)}
+            required
+            class="w-full text-xs border border-border rounded px-2.5 py-1.5 outline-none bg-surface"
+          />
+          <input 
+            type="text" 
+            placeholder="Company ID" 
+            value={companyId} 
+            onChange={e => setCompanyId(e.target.value)}
+            required
+            class="w-full text-xs border border-border rounded px-2.5 py-1.5 outline-none bg-surface"
+          />
+          <button 
+            type="submit" 
+            class="w-full py-1.5 bg-accent text-white font-bold rounded text-xs transition hover:bg-accent/90"
+          >
+            Add Late Registration
+          </button>
+        </form>
+      );
+    }
+
+    // --- COMPONENT: PARTICIPANT ADD/EDIT FORM ---
+    function ParticipantForm({ participant, onSave, onCancel }) {
+      const [name, setName] = useState(participant?.name || '');
+      const [companyId, setCompanyId] = useState(participant?.companyId || '');
+      const [seed, setSeed] = useState(participant?.seed || '');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave(name, companyId, participant ? seed : undefined);
+      };
+
+      return (
+        <form onSubmit={handleSubmit} class="space-y-4">
+          <div class="space-y-1">
+            <label class="text-xs font-semibold text-textSecondary uppercase">Player Name</label>
+            <input 
+              type="text" 
+              required 
+              value={name} 
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Alice Cooper"
+              class="w-full text-sm border border-border rounded-lg px-3 py-2 outline-none focus:border-accent bg-surface"
+            />
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs font-semibold text-textSecondary uppercase">Company ID (Unique)</label>
+            <input 
+              type="text" 
+              required 
+              value={companyId} 
+              onChange={e => setCompanyId(e.target.value)}
+              placeholder="e.g. COMP103"
+              class="w-full text-sm border border-border rounded-lg px-3 py-2 outline-none focus:border-accent bg-surface"
+            />
+          </div>
+
+          {participant && (
+            <div class="space-y-1">
+              <label class="text-xs font-semibold text-textSecondary uppercase">Seed Placement</label>
+              <input 
+                type="number" 
+                required 
+                min="1"
+                value={seed} 
+                onChange={e => setSeed(e.target.value)}
+                class="w-full text-sm border border-border rounded-lg px-3 py-2 outline-none focus:border-accent bg-surface font-mono"
+              />
+            </div>
+          )}
+
+          <div class="flex items-center justify-end gap-2 border-t border-border pt-4 mt-2">
+            <button type="button" onClick={onCancel} class="px-4 py-2 border border-border rounded-lg hover:bg-surface text-xs font-bold text-textPrimary">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-success text-white rounded-lg hover:bg-success/90 text-xs font-bold shadow">Save Player</button>
+          </div>
+        </form>
+      );
+    }
+
+    // --- COMPONENT: BULK IMPORT FORM ---
+    function BulkImportForm({ onImport, onCancel }) {
+      const [csvText, setCsvText] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        onImport(csvText);
+      };
+
+      return (
+        <form onSubmit={handleSubmit} class="space-y-4">
+          <textarea 
+            rows="8"
+            required
+            value={csvText}
+            onChange={e => setCsvText(e.target.value)}
+            placeholder="Paste player data here..."
+            class="w-full text-sm border border-border rounded-lg px-3 py-2 outline-none font-mono bg-surface"
+          ></textarea>
+
+          <div class="flex items-center justify-end gap-2 border-t border-border pt-4">
+            <button type="button" onClick={onCancel} class="px-4 py-2 border border-border rounded-lg hover:bg-surface text-xs font-bold">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-success text-white rounded-lg hover:bg-success/90 text-xs font-bold shadow">Start Import</button>
+          </div>
+        </form>
+      );
+    }
+
+    // --- COMPONENT: MATCH SCORE DIALOG FORM ---
+    function MatchScoreForm({ match, onSave, onCancel, onLockToggle }) {
+      const [score1, setScore1] = useState(match.score1 !== null ? match.score1.toString() : '');
+      const [score2, setScore2] = useState(match.score2 !== null ? match.score2.toString() : '');
+      const [forceWinner, setForceWinner] = useState(match.winner ? (match.winner.id === match.p1?.id ? 'p1' : 'p2') : '');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (score1 === '' && score2 === '' && !forceWinner) {
+          onSave(null, null, null);
+          return;
+        }
+
+        const s1 = score1 !== '' ? parseFloat(score1) : 0;
+        const s2 = score2 !== '' ? parseFloat(score2) : 0;
+        onSave(s1, s2, forceWinner || null);
+      };
+
+      const handleClear = () => {
+        onSave(null, null, null);
+      };
+
+      return (
+        <form onSubmit={handleSubmit} class="space-y-5">
+          
+          {/* Match Versus Row */}
+          <div class="flex justify-between items-center bg-surface border border-border p-4 rounded-xl">
+            
+            {/* Player 1 Column */}
+            <div class="flex flex-col items-center flex-1">
+              <span class="text-[10px] font-bold text-accent font-mono uppercase bg-accent/10 px-1.5 py-0.5 rounded mb-1">
+                Seed #{match.p1?.seed || 'BYE'}
+              </span>
+              <span class="text-sm font-bold text-textPrimary text-center truncate w-full">
+                {match.p1?.name || 'BYE Slot'}
+              </span>
+              <span class="text-[10px] text-textSecondary font-mono">{match.p1?.companyId || '-'}</span>
+              
+              {match.p1 && (
+                <div class="mt-3 w-16">
+                  <input 
+                    type="number" 
+                    min="0"
+                    placeholder="Score"
+                    value={score1}
+                    onChange={e => setScore1(e.target.value)}
+                    class="w-full text-center text-sm border border-border rounded p-1 outline-none bg-white font-mono font-bold"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div class="px-3 font-mono font-bold text-textSecondary text-xs">VS</div>
+
+            {/* Player 2 Column */}
+            <div class="flex flex-col items-center flex-1">
+              <span class="text-[10px] font-bold text-accent font-mono uppercase bg-accent/10 px-1.5 py-0.5 rounded mb-1">
+                Seed #{match.p2?.seed || 'BYE'}
+              </span>
+              <span class="text-sm font-bold text-textPrimary text-center truncate w-full">
+                {match.p2?.name || 'BYE Slot'}
+              </span>
+              <span class="text-[10px] text-textSecondary font-mono">{match.p2?.companyId || '-'}</span>
+              
+              {match.p2 && (
+                <div class="mt-3 w-16">
+                  <input 
+                    type="number" 
+                    min="0"
+                    placeholder="Score"
+                    value={score2}
+                    onChange={e => setScore2(e.target.value)}
+                    class="w-full text-center text-sm border border-border rounded p-1 outline-none bg-white font-mono font-bold"
+                  />
+                </div>
+              )}
+            </div>
+
+          </div>
+
+          {/* Force winner selection dropdown */}
+          {match.p1 && match.p2 && (
+            <div class="space-y-1">
+              <label class="text-xs font-semibold text-textSecondary uppercase">Force Winner Selection</label>
+              <select 
+                value={forceWinner}
+                onChange={e => setForceWinner(e.target.value)}
+                class="w-full border border-border rounded-lg px-2.5 py-2 text-xs font-semibold outline-none focus:border-accent bg-white"
+              >
+                <option value="">Decide by score value (high score wins)</option>
+                <option value="p1">Force Win: {match.p1.name}</option>
+                <option value="p2">Force Win: {match.p2.name}</option>
+              </select>
+            </div>
+          )}
+
+          {/* Lock matchup setting */}
+          <div class="flex items-center gap-2 py-1">
+            <input 
+              type="checkbox" 
+              id="lock-box"
+              checked={match.isLocked}
+              onChange={onLockToggle}
+              class="w-4 h-4 text-accent border-border rounded outline-none"
+            />
+            <label htmlFor="lock-box" class="text-xs font-medium text-textPrimary cursor-pointer select-none">
+              🔒 Lock Matchup (prevents score changes or reseeds)
+            </label>
+          </div>
+
+          <div class="flex items-center justify-between border-t border-border pt-4">
+            <button type="button" onClick={handleClear} class="px-3.5 py-2 text-xs font-bold text-error border border-error/10 hover:bg-error/5 rounded-lg transition">
+              Clear Score
+            </button>
+            <div class="flex items-center gap-2">
+              <button type="button" onClick={onCancel} class="px-4 py-2 border border-border rounded-lg hover:bg-surface text-xs font-bold">Cancel</button>
+              <button type="submit" class="px-4 py-2 bg-success text-white rounded-lg hover:bg-success/90 text-xs font-bold shadow">Save Result</button>
+            </div>
+          </div>
+        </form>
+      );
+    }
+
+    // --- COMPONENT: SVG CONNECTORS COMPONENT ---
+    function SvgConnectors({ matches, layoutMode, totalRounds, highlightedMatches }) {
+      const getPosition = (match) => {
+        const isLeft = match.side === 'left';
+        const isCenter = match.side === 'center';
+        const is3rd = match.isThirdPlace;
+
+        let x = 0;
+        if (isCenter) {
+          x = 500;
+        } else if (isLeft) {
+          x = match.round * 280 + 100;
+        } else {
+          x = 1000 - (match.round * 280);
+        }
+
+        let y = match.index * 120 + 100;
+        if (is3rd) y += 150;
+        return { x, y };
+      };
+
+      const paths = [];
+
+      matches.forEach(m => {
+        if (!m.destMatchId) return;
+        const start = getPosition(m);
+        // Find destination match
+        const dest = matches.find(d => d.id === m.destMatchId);
+        if (!dest) return;
+        const end = getPosition(dest);
+
+        const isLeft = m.side === 'left';
+        const startX = isLeft ? (start.x + 240) : start.x;
+        const endX = isLeft ? end.x : (end.x + 240);
+        const startY = start.y + 40;
+        // Check if destination is p1 or p2
+        const endY = m.destParam === 'p1' ? (end.y + 20) : (end.y + 60);
+
+        const midX = (startX + endX) / 2;
+
+        const dPath = `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`;
+        const isHighlighted = highlightedMatches.has(m.id) && highlightedMatches.has(dest.id);
+
+        paths.push(
+          <g key={m.id}>
+            <path 
+              d={dPath} 
+              fill="none" 
+              stroke={isHighlighted ? '#2563EB' : '#E5E7EB'} 
+              strokeWidth={isHighlighted ? '3' : '2'}
+              className={isHighlighted ? 'connector-path' : ''}
+              strokeLinecap="round"
+            />
+          </g>
+        );
+      });
+
+      return (
+        <svg class="absolute inset-0 w-full h-full pointer-events-none">
+          {paths}
+        </svg>
+      );
+    }
+
+    // --- COMPONENT: BRACKET NODES LAYOUT RENDERER ---
+    function BracketNodesRenderer({ 
+      matches, layoutMode, totalRounds, roundMatchesMap, thirdPlaceMatchObj, 
+      isAdmin, status, highlightedParticipantId, onCardClick, onSwap, onQuickAdd 
+    }) {
+      
+      const renderMatchNode = (m) => {
+        const isLeft = m.side === 'left';
+        const isCenter = m.side === 'center';
+        const is3rd = m.isThirdPlace;
+
+        let left = 0;
+        if (isCenter) {
+          left = 500;
+        } else if (isLeft) {
+          left = m.round * 280 + 100;
+        } else {
+          left = 1000 - (m.round * 280);
+        }
+
+        let top = m.index * 120 + 100;
+        if (is3rd) top += 150;
+
+        return (
+          <div 
+            key={m.id}
+            style={{ left: `${left}px`, top: `${top}px` }}
+            class="absolute w-[240px] pointer-events-auto"
+          >
+            <MatchCard 
+              match={m} 
+              isAdmin={isAdmin}
+              status={status}
+              highlightedParticipantId={highlightedParticipantId}
+              onClick={() => onCardClick(m)}
+              onSwap={onSwap}
+              onQuickAdd={onQuickAdd}
+            />
+          </div>
+        );
+      };
+
+      return (
+        <div class="relative w-full h-full">
+          {/* Double Sided Layout mapping */}
+          {layoutMode === 'Double' ? (
+            <React.Fragment>
+              {matches.map(m => renderMatchNode(m))}
+            </React.Fragment>
+          ) : (
+            // Single sided layout (offset leftwards for clarity)
+            <React.Fragment>
+              {matches.map(m => {
+                // Shift all matching indices to align left-to-right
+                const startLeftX = m.round * 280 + 100;
+                let topY = m.index * 120 + 100;
+                if (m.isThirdPlace) topY += 150;
+
+                return (
+                  <div 
+                    key={m.id}
+                    style={{ left: `${startLeftX}px`, top: `${topY}px` }}
+                    class="absolute w-[240px] pointer-events-auto"
+                  >
+                    <MatchCard 
+                      match={m} 
+                      isAdmin={isAdmin}
+                      status={status}
+                      highlightedParticipantId={highlightedParticipantId}
+                      onClick={() => onCardClick(m)}
+                      onSwap={onSwap}
+                      onQuickAdd={onQuickAdd}
+                    />
+                  </div>
+                );
+              })}
+            </React.Fragment>
+          )}
+        </div>
+      );
+    }
+
+    // --- COMPONENT: INDIVIDUAL MATCH CARD COMPONENT ---
+    function MatchCard({ match, isAdmin, status, highlightedParticipantId, onClick, onSwap, onQuickAdd }) {
+      const [showQuickAddP1, setShowQuickAddP1] = useState(false);
+      const [showQuickAddP2, setShowQuickAddP2] = useState(false);
+      const [quickName, setQuickName] = useState('');
+      const [quickCompany, setQuickCompany] = useState('');
+
+      const hasP1 = match.p1 !== null;
+      const hasP2 = match.p2 !== null;
+
+      const p1IsWinner = match.winner?.id === match.p1?.id && match.winner !== null;
+      const p2IsWinner = match.winner?.id === match.p2?.id && match.winner !== null;
+
+      const p1Highlighted = match.p1?.id === highlightedParticipantId;
+      const p2Highlighted = match.p2?.id === highlightedParticipantId;
+
+      // Drag and drop seeding
+      const handleDragStart = (e, param) => {
+        if (status !== 'Draft' && status !== 'Seeded') return;
+        e.dataTransfer.setData("sourceMatchId", match.id);
+        e.dataTransfer.setData("sourceParam", param);
+      };
+
+      const handleDragOver = (e) => {
+        e.preventDefault();
+      };
+
+      const handleDrop = (e, targetParam) => {
+        e.preventDefault();
+        const srcId = e.dataTransfer.getData("sourceMatchId");
+        const srcParam = e.dataTransfer.getData("sourceParam");
+        if (srcId && srcParam) {
+          onSwap(srcId, srcParam, match.id, targetParam);
+        }
+      };
+
+      const handleQuickSubmit = (e, param) => {
+        e.preventDefault();
+        if (quickName && quickCompany) {
+          onQuickAdd(match.id, param, quickName, quickCompany);
+          setQuickName('');
+          setQuickCompany('');
+          setShowQuickAddP1(false);
+          setShowQuickAddP2(false);
+        }
+      };
+
+      return (
+        <div 
+          onClick={onClick}
+          className={`match-card bg-white rounded-xl border border-border shadow-sm flex flex-col text-xs transition duration-150 relative overflow-hidden ${
+            match.isLocked ? 'border-dashed border-gray-300 bg-gray-50' : 'hover:shadow-md cursor-pointer'
+          } ${
+            (p1Highlighted || p2Highlighted) ? 'ring-2 ring-accent border-accent bg-accent/[0.02]' : ''
+          }`}
+        >
+          {/* Header Status Tag */}
+          <div class="px-2.5 py-1.5 border-b border-border bg-surface flex items-center justify-between font-mono text-[9px] text-textSecondary uppercase tracking-wider">
+            <span>
+              {match.isThirdPlace ? 'Third Place Match' : `Match Index: ${match.index}`}
+            </span>
+            {match.isLocked && <span title="Scoring locked">🔒</span>}
+          </div>
+
+          <div class="flex flex-col relative divide-y divide-border">
+            
+            {/* Player 1 Row */}
+            <div 
+              className={`p-2.5 flex items-center justify-between relative ${p1Highlighted ? 'bg-accent/10' : ''}`}
+              draggable={isAdmin && (status === 'Draft' || status === 'Seeded') && hasP1 && !match.isLocked}
+              onDragStart={e => handleDragStart(e, 'p1')}
+              onDragOver={handleDragOver}
+              onDrop={e => handleDrop(e, 'p1')}
+            >
+              {hasP1 ? (
+                <div class="flex flex-col min-w-0 pr-4">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[9px] font-bold text-accent font-mono uppercase bg-accent/10 px-1 rounded">#{match.p1.seed}</span>
+                    <span className={`font-semibold truncate ${p1IsWinner ? 'text-success' : 'text-textPrimary'}`}>
+                      {match.p1.name}
+                    </span>
+                  </div>
+                  <span class="text-[9px] text-textSecondary truncate ml-0.5">{match.p1.companyId}</span>
+                </div>
+              ) : (
+                <div class="w-full">
+                  {isAdmin && status === 'Started' && !match.isLocked ? (
+                    showQuickAddP1 ? (
+                      <form onSubmit={e => handleQuickSubmit(e, 'p1')} onClick={e => e.stopPropagation()} class="flex gap-1">
+                        <input required type="text" placeholder="Name" value={quickName} onChange={e => setQuickName(e.target.value)} class="border border-border text-[10px] p-0.5 rounded w-16" />
+                        <input required type="text" placeholder="Company" value={quickCompany} onChange={e => setQuickCompany(e.target.value)} class="border border-border text-[10px] p-0.5 rounded w-16" />
+                        <button type="submit" class="bg-accent text-white px-1 rounded text-[10px] font-bold">Add</button>
+                      </form>
+                    ) : (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setShowQuickAddP1(true); }}
+                        class="text-accent hover:underline font-semibold"
+                      >
+                        + Add Participant
+                      </button>
+                    )
+                  ) : (
+                    <span class="text-textSecondary italic">BYE Slot</span>
+                  )}
+                </div>
+              )}
+              {hasP1 && match.score1 !== null && (
+                <span className={`font-mono font-bold text-sm ${p1IsWinner ? 'text-success' : 'text-textSecondary'}`}>
+                  {match.score1}
+                </span>
+              )}
+            </div>
+
+            {/* Player 2 Row */}
+            <div 
+              className={`p-2.5 flex items-center justify-between relative ${p2Highlighted ? 'bg-accent/10' : ''}`}
+              draggable={isAdmin && (status === 'Draft' || status === 'Seeded') && hasP2 && !match.isLocked}
+              onDragStart={e => handleDragStart(e, 'p2')}
+              onDragOver={handleDragOver}
+              onDrop={e => handleDrop(e, 'p2')}
+            >
+              {hasP2 ? (
+                <div class="flex flex-col min-w-0 pr-4">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[9px] font-bold text-accent font-mono uppercase bg-accent/10 px-1 rounded">#{match.p2.seed}</span>
+                    <span className={`font-semibold truncate ${p2IsWinner ? 'text-success' : 'text-textPrimary'}`}>
+                      {match.p2.name}
+                    </span>
+                  </div>
+                  <span class="text-[9px] text-textSecondary truncate ml-0.5">{match.p2.companyId}</span>
+                </div>
+              ) : (
+                <div class="w-full">
+                  {isAdmin && status === 'Started' && !match.isLocked ? (
+                    showQuickAddP2 ? (
+                      <form onSubmit={e => handleQuickSubmit(e, 'p2')} onClick={e => e.stopPropagation()} class="flex gap-1">
+                        <input required type="text" placeholder="Name" value={quickName} onChange={e => setQuickName(e.target.value)} class="border border-border text-[10px] p-0.5 rounded w-16" />
+                        <input required type="text" placeholder="Company" value={quickCompany} onChange={e => setQuickCompany(e.target.value)} class="border border-border text-[10px] p-0.5 rounded w-16" />
+                        <button type="submit" class="bg-accent text-white px-1 rounded text-[10px] font-bold">Add</button>
+                      </form>
+                    ) : (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setShowQuickAddP2(true); }}
+                        class="text-accent hover:underline font-semibold"
+                      >
+                        + Add Participant
+                      </button>
+                    )
+                  ) : (
+                    <span class="text-textSecondary italic">BYE Slot</span>
+                  )}
+                </div>
+              )}
+              {hasP2 && match.score2 !== null && (
+                <span className={`font-mono font-bold text-sm ${p2IsWinner ? 'text-success' : 'text-textSecondary'}`}>
+                  {match.score2}
+                </span>
+              )}
+            </div>
+
+          </div>
+        </div>
+      );
+    }
+
+    // Render application
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

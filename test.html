@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tournament Bracket Pro - Test Runner</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 2rem;
+    }
+    h1 {
+      border-bottom: 2px solid #334155;
+      padding-bottom: 0.5rem;
+    }
+    .test-case {
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    .test-case.pass {
+      border-left: 6px solid #10b981;
+    }
+    .test-case.fail {
+      border-left: 6px solid #ef4444;
+      background: #451a1a;
+    }
+    .test-title {
+      font-weight: bold;
+      font-size: 1.1rem;
+      margin-bottom: 0.5rem;
+    }
+    .test-log {
+      font-family: monospace;
+      background: #090d16;
+      padding: 0.5rem;
+      border-radius: 4px;
+      margin-top: 0.5rem;
+      white-space: pre-wrap;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .pass-badge { background: #064e3b; color: #34d399; }
+    .fail-badge { background: #7f1d1d; color: #f87171; }
+    #summary {
+      font-size: 1.25rem;
+      font-weight: bold;
+      margin-bottom: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tournament Bracket Pro - Automated Unit Tests</h1>
+  <div id="summary">Running tests...</div>
+  <div id="results"></div>
+
+  <!-- Load target under test -->
+  <script src="src/bracketEngine.js"></script>
+
+  <script>
+    const resultsContainer = document.getElementById('results');
+    let passCount = 0;
+    let failCount = 0;
+
+    function assert(condition, message) {
+      if (!condition) {
+        throw new Error(message || "Assertion failed");
+      }
+    }
+
+    function runTest(name, fn) {
+      const testDiv = document.createElement('div');
+      testDiv.className = 'test-case';
+      
+      const logLines = [];
+      const logger = {
+        log: (msg) => logLines.push("[LOG] " + msg),
+        error: (msg) => logLines.push("[ERROR] " + msg)
+      };
+
+      try {
+        // Reset engine before each test
+        window.BracketEngine.resetBracket();
+        // Clear participants list
+        while(window.BracketEngine.getParticipants().length > 0) {
+          window.BracketEngine.deleteParticipant(window.BracketEngine.getParticipants()[0].id);
+        }
+
+        fn(logger);
+        
+        testDiv.classList.add('pass');
+        testDiv.innerHTML = `
+          <div class="test-title">
+            <span class="status-badge pass-badge">PASS</span> ${name}
+          </div>
+          <div class="test-log">${logLines.join('\n')}</div>
+        `;
+        passCount++;
+      } catch (err) {
+        testDiv.classList.add('fail');
+        logLines.push("[FAIL] " + err.message);
+        if (err.stack) logLines.push(err.stack);
+        
+        testDiv.innerHTML = `
+          <div class="test-title">
+            <span class="status-badge fail-badge">FAIL</span> ${name}
+          </div>
+          <div class="test-log">${logLines.join('\n')}</div>
+        `;
+        failCount++;
+      }
+      resultsContainer.appendChild(testDiv);
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const summary = document.getElementById('summary');
+      summary.innerHTML = `Total Tests: ${passCount + failCount} | Pass: <span style="color:#34d399">${passCount}</span> | Fail: <span style="color:#f87171">${failCount}</span>`;
+    }
+
+    // ========================================================================
+    // TEST SUITE DEFINITIONS
+    // ========================================================================
+
+    // 1. Participant Validations
+    runTest("Participant Management Validation", (t) => {
+      t.log("Adding valid participant John Doe");
+      const p1 = window.BracketEngine.addParticipant("John Doe", "COMP001");
+      assert(p1.name === "John Doe", "Name matches");
+      assert(p1.companyId === "COMP001", "Company ID matches");
+      assert(p1.seed === 1, "Default seed should be 1");
+
+      t.log("Adding duplicate Company ID");
+      try {
+        window.BracketEngine.addParticipant("Jane Doe", "COMP001");
+        assert(false, "Should have thrown duplicate Company ID error");
+      } catch(e) {
+        t.log("Correctly caught error: " + e.message);
+      }
+
+      t.log("Editing participant");
+      window.BracketEngine.editParticipant(p1.id, "Johnathan Doe", "COMP001_UPDATED", 2);
+      const updatedP = window.BracketEngine.getParticipants()[0];
+      assert(updatedP.name === "Johnathan Doe", "Name updated successfully");
+      assert(updatedP.companyId === "COMP001_UPDATED", "Company ID updated successfully");
+    });
+
+    // 2. Seeding Recalculations
+    runTest("Automatic and Manual Seeding Distributions", (t) => {
+      t.log("Adding 5 participants");
+      window.BracketEngine.addParticipant("P1", "C001");
+      window.BracketEngine.addParticipant("P2", "C002");
+      window.BracketEngine.addParticipant("P3", "C003");
+      window.BracketEngine.addParticipant("P4", "C004");
+      window.BracketEngine.addParticipant("P5", "C005");
+
+      const parts = window.BracketEngine.getParticipants();
+      assert(parts.length === 5, "5 players added");
+      parts.forEach((p, idx) => {
+        assert(p.seed === idx + 1, `Auto-seed for player ${p.name} is ${p.seed}`);
+      });
+
+      t.log("Removing player 3");
+      window.BracketEngine.deleteParticipant(parts[2].id);
+      const partsAfterDel = window.BracketEngine.getParticipants();
+      assert(partsAfterDel.length === 4, "4 players remaining");
+      
+      // Seeding should recalculate
+      partsAfterDel.forEach((p, idx) => {
+        assert(p.seed === idx + 1, `Recalculated seed is ${p.seed}`);
+      });
+    });
+
+    // 3. BYE Generation & Placement
+    runTest("BYE Distribution and Auto-Advance Rules", (t) => {
+      t.log("Adding 5 participants for size 8 bracket (3 BYEs)");
+      window.BracketEngine.addParticipant("P1", "C001");
+      window.BracketEngine.addParticipant("P2", "C002");
+      window.BracketEngine.addParticipant("P3", "C003");
+      window.BracketEngine.addParticipant("P4", "C004");
+      window.BracketEngine.addParticipant("P5", "C005");
+
+      window.BracketEngine.generateBracket();
+      const matches = window.BracketEngine.getMatches();
+      const S = window.BracketEngine.getBracketSize();
+      assert(S === 8, "Bracket size is 8");
+
+      // Round 0 should have S/2 = 4 matches.
+      const r0Matches = matches.filter(m => m.round === 0);
+      assert(r0Matches.length === 4, "4 matches in Round 0");
+
+      t.log("Checking last matchup BYE placements");
+      // With 5 players and 3 BYEs:
+      // Player-vs-player count: 4 matches - 3 BYEs = 1 match.
+      // Player-vs-bye count: 3 matches.
+      // The first match (index 0) must be Player vs Player.
+      // The last 3 matches (index 1, 2, 3) must be Player vs BYE.
+      assert(r0Matches[0].p1.id !== 'BYE' && r0Matches[0].p2.id !== 'BYE', "Match 0 is player-vs-player");
+      assert(r0Matches[1].p1.id === 'BYE' || r0Matches[1].p2.id === 'BYE', "Match 1 has a BYE");
+      assert(r0Matches[2].p1.id === 'BYE' || r0Matches[2].p2.id === 'BYE', "Match 2 has a BYE");
+      assert(r0Matches[3].p1.id === 'BYE' || r0Matches[3].p2.id === 'BYE', "Match 3 has a BYE");
+
+      t.log("Verifying Auto-Advance of BYE slots");
+      // Check that the winners of Match 1, 2, 3 are populated and propagated to Round 1
+      assert(r0Matches[1].winner !== null, "Match 1 has auto-winner");
+      assert(r0Matches[2].winner !== null, "Match 2 has auto-winner");
+      assert(r0Matches[3].winner !== null, "Match 3 has auto-winner");
+
+      // Verify they propagated to Round 1
+      const r1Matches = matches.filter(m => m.round === 1);
+      assert(r1Matches[0].p2 !== null, "Round 1 Match 0, P2 is populated from Match 1 winner");
+      assert(r1Matches[1].p1 !== null, "Round 1 Match 1, P1 is populated from Match 2 winner");
+      assert(r1Matches[1].p2 !== null, "Round 1 Match 1, P2 is populated from Match 3 winner");
+    });
+
+    // 4. Winner Propagation and Reset Invalidation
+    runTest("Winner Propagation & Dependent Reset", (t) => {
+      window.BracketEngine.addParticipant("P1", "C001");
+      window.BracketEngine.addParticipant("P2", "C002");
+      window.BracketEngine.addParticipant("P3", "C003");
+      window.BracketEngine.addParticipant("P4", "C004");
+      
+      window.BracketEngine.generateBracket();
+      const matches = window.BracketEngine.getMatches();
+
+      t.log("Setting scores for Round 0 Match 0 (P1 vs P2)");
+      const r0m0 = matches.find(m => m.id === "match_0_0");
+      window.BracketEngine.updateMatchScore(r0m0.id, 5, 2);
+      assert(r0m0.winner.id === r0m0.p1.id, "P1 wins Match 0");
+
+      const r1m0 = matches.find(m => m.id === "match_1_0");
+      assert(r1m0.p1.id === r0m0.p1.id, "P1 propagated to Round 1 Match 0");
+
+      t.log("Setting scores for Round 0 Match 1 (P3 vs P4) and Round 1 Match 0 (P1 vs P3)");
+      const r0m1 = matches.find(m => m.id === "match_0_1");
+      window.BracketEngine.updateMatchScore(r0m1.id, 1, 3); // P3 wins
+      assert(r1m0.p2.id === r0m1.p2.id, "P3 propagated to Round 1");
+
+      window.BracketEngine.updateMatchScore(r1m0.id, 10, 8); // P1 wins finals
+      assert(r1m0.winner.id === r0m0.p1.id, "P1 is champion");
+
+      t.log("Changing upstream score to reverse winner (P2 wins Match 0)");
+      window.BracketEngine.updateMatchScore(r0m0.id, 1, 4); // P2 wins now
+      assert(r0m0.winner.id === r0m0.p2.id, "P2 is now winner of Match 0");
+      
+      // Downstream match must reset!
+      assert(r1m0.p1.id === r0m0.p2.id, "Round 1 participant updated to P2");
+      assert(r1m0.score1 === null, "Round 1 scores cleared");
+      assert(r1m0.score2 === null, "Round 1 scores cleared");
+      assert(r1m0.winner === null, "Round 1 winner cleared (P1 no longer champion)");
+    });
+
+    // 5. Locking Mechanisms
+    runTest("Match Locking Behavior", (t) => {
+      window.BracketEngine.addParticipant("P1", "C001");
+      window.BracketEngine.addParticipant("P2", "C002");
+      window.BracketEngine.generateBracket();
+      
+      const m = window.BracketEngine.getMatches()[0];
+      t.log("Locking match");
+      window.BracketEngine.toggleMatchLock(m.id);
+      assert(m.isLocked === true, "Match is locked");
+
+      t.log("Attempting to edit score on locked match");
+      try {
+        window.BracketEngine.updateMatchScore(m.id, 5, 3);
+        assert(false, "Editing locked match should throw error");
+      } catch (err) {
+        t.log("Correctly caught error: " + err.message);
+      }
+    });
+
+    // 6. Late Registration (Scenario A - BYEs exist)
+    runTest("Late Registration Scenario A (BYEs available)", (t) => {
+      t.log("Adding 5 players (has 3 BYEs)");
+      window.BracketEngine.addParticipant("P1", "C001");
+      window.BracketEngine.addParticipant("P2", "C002");
+      window.BracketEngine.addParticipant("P3", "C003");
+      window.BracketEngine.addParticipant("P4", "C004");
+      window.BracketEngine.addParticipant("P5", "C005");
+      window.BracketEngine.generateBracket();
+
+      const initialSize = window.BracketEngine.getBracketSize();
+      assert(initialSize === 8, "Initial size is 8");
+
+      t.log("Registering late participant P6");
+      const res = window.BracketEngine.addLateParticipant("P6", "C006");
+      assert(res.scenario === 'A', "Scenario A matched");
+      assert(window.BracketEngine.getBracketSize() === 8, "Bracket size remains 8");
+
+      // Verify one BYE slot was replaced in Round 0
+      const r0Matches = window.BracketEngine.getMatches().filter(m => m.round === 0);
+      const containsP6 = r0Matches.some(m => m.p1.id === res.participant.id || m.p2.id === res.participant.id);
+      assert(containsP6 === true, "P6 inserted in Round 0 match");
+    });
+
+    // 7. Late Registration (Scenario B - No BYEs)
+    runTest("Late Registration Scenario B (Expansion)", (t) => {
+      t.log("Adding 4 players (Full bracket, 0 BYEs)");
+      window.BracketEngine.addParticipant("P1", "C001");
+      window.BracketEngine.addParticipant("P2", "C002");
+      window.BracketEngine.addParticipant("P3", "C003");
+      window.BracketEngine.addParticipant("P4", "C004");
+      window.BracketEngine.generateBracket();
+
+      const matchesBefore = window.BracketEngine.getMatches();
+      // Complete Match 0
+      window.BracketEngine.updateMatchScore("match_0_0", 5, 2);
+
+      t.log("Registering late participant P5 (No BYEs left)");
+      const res = window.BracketEngine.addLateParticipant("P5", "C005");
+      assert(res.scenario === 'B', "Scenario B matches");
+      
+      const newSize = window.BracketEngine.getBracketSize();
+      assert(newSize === 8, "Bracket expanded to 8");
+
+      const matchesAfter = window.BracketEngine.getMatches();
+      
+      t.log("Verifying original scores are preserved in Round 1");
+      // The old Match 0 (which was Round 0 Index 0) is now Round 1 Index 0.
+      // Its winner was P1 (which should be preserved in Round 1)
+      const newR1m0 = matchesAfter.find(m => m.round === 1 && m.index === 0);
+      assert(newR1m0.score1 === 5 && newR1m0.score2 === 2, "Scores preserved after shifting rounds!");
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1332 @@
+/* ==========================================================================
+   Tournament Bracket Pro - Design System & Stylesheet
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Design Tokens & Root Variables
+   -------------------------------------------------------------------------- */
+:root {
+  /* Fonts */
+  --font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Color Palette (HSL Tailored Dark Theme) */
+  --bg-primary: hsl(222, 47%, 9%);
+  --bg-secondary: hsl(222, 47%, 14%);
+  --bg-tertiary: hsl(223, 47%, 18%);
+  
+  --text-primary: hsl(210, 40%, 98%);
+  --text-secondary: hsl(215, 20%, 68%);
+  --text-muted: hsl(215, 16%, 47%);
+
+  --color-primary: hsl(239, 84%, 67%);
+  --color-primary-glow: hsla(239, 84%, 67%, 0.3);
+  --color-accent: hsl(263, 84%, 67%);
+  
+  --color-success: hsl(142, 70%, 45%);
+  --color-success-glow: hsla(142, 70%, 45%, 0.2);
+  --color-warning: hsl(38, 92%, 50%);
+  --color-danger: hsl(0, 84%, 60%);
+  
+  /* Glassmorphic Tokens */
+  --glass-bg: hsla(222, 47%, 15%, 0.7);
+  --glass-border: hsla(217, 30%, 30%, 0.3);
+  --glass-border-focus: hsla(239, 84%, 67%, 0.6);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+
+  /* Podiums */
+  --color-gold: hsl(45, 93%, 47%);
+  --color-silver: hsl(210, 10%, 75%);
+  --color-bronze: hsl(25, 40%, 50%);
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* --------------------------------------------------------------------------
+   2. High Contrast Mode Overrides (Accessibility)
+   -------------------------------------------------------------------------- */
+body.high-contrast {
+  --bg-primary: #000000;
+  --bg-secondary: #111111;
+  --bg-tertiary: #222222;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #dddddd;
+  --text-muted: #aaaaaa;
+
+  --color-primary: #ffff00;
+  --color-primary-glow: rgba(255, 255, 0, 0.4);
+  --color-accent: #00ffff;
+  
+  --color-success: #00ff00;
+  --color-warning: #ffaa00;
+  --color-danger: #ff0000;
+  
+  --glass-bg: #000000;
+  --glass-border: #ffffff;
+  --glass-border-focus: #ffff00;
+  --glass-shadow: none;
+
+  --color-gold: #ffff00;
+  --color-silver: #ffffff;
+  --color-bronze: #ff8800;
+}
+
+/* --------------------------------------------------------------------------
+   3. Global Layout & Reset
+   -------------------------------------------------------------------------- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.hide {
+  display: none !important;
+}
+
+/* Scrollbars styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   4. Header & Navigation Tab
+   -------------------------------------------------------------------------- */
+.app-header {
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--glass-border);
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.header-branding {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-branding h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  background: linear-gradient(135deg, var(--text-primary) 30%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo-emoji {
+  font-size: 1.6rem;
+  filter: drop-shadow(0 2px 8px rgba(251, 191, 36, 0.4));
+}
+
+.app-nav {
+  display: flex;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--glass-border);
+  padding: 0.25rem;
+  border-radius: 9999px;
+  gap: 0.125rem;
+}
+
+.nav-tab {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0.5rem 1.25rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.nav-tab:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+}
+
+.nav-tab.active {
+  color: var(--text-primary);
+  background-color: var(--color-primary);
+  box-shadow: 0 4px 12px var(--color-primary-glow);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+/* Badges */
+.badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  letter-spacing: 0.05em;
+}
+
+.badge-edit {
+  background-color: hsla(0, 84%, 60%, 0.15);
+  color: var(--color-danger);
+  border: 1px solid hsla(0, 84%, 60%, 0.4);
+}
+
+.badge-locked {
+  background-color: hsla(38, 92%, 50%, 0.15);
+  color: var(--color-warning);
+  border: 1px solid hsla(38, 92%, 50%, 0.4);
+}
+
+/* View/Admin Toggle Switch */
+.mode-toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  transition: var(--transition-normal);
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--text-secondary);
+  transition: var(--transition-normal);
+}
+
+input:checked + .slider {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+input:checked + .slider:before {
+  transform: translateX(24px);
+  background-color: var(--text-primary);
+}
+
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+/* --------------------------------------------------------------------------
+   5. Main Workspaces & Panels
+   -------------------------------------------------------------------------- */
+.app-main {
+  flex-grow: 1;
+  position: relative;
+  overflow: hidden;
+  height: calc(100vh - 66px);
+}
+
+.tab-panel {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  padding: 1.5rem 2rem;
+  overflow-y: auto;
+}
+
+.tab-panel.active {
+  display: flex;
+}
+
+#tab-bracket {
+  padding: 0; /* Clear container padding to utilize full viewport canvas */
+  overflow: hidden;
+}
+
+/* Toolbars */
+.panel-toolbar {
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--glass-border);
+  padding: 0.75rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* --------------------------------------------------------------------------
+   6. UI Elements & Form Inputs
+   -------------------------------------------------------------------------- */
+.icon-btn, .text-btn, .action-btn, .toggle-btn {
+  font-family: var(--font-family);
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  width: 36px;
+  height: 36px;
+  font-size: 1rem;
+}
+
+.icon-btn:hover {
+  background: var(--glass-border);
+  border-color: var(--text-muted);
+}
+
+.text-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  padding: 0 1rem;
+  height: 36px;
+  color: var(--text-primary);
+}
+
+.text-btn:hover {
+  background: var(--glass-border);
+}
+
+.toggle-btn {
+  background: var(--bg-primary);
+  border: 1px solid var(--glass-border);
+  padding: 0.5rem 1rem;
+  color: var(--text-secondary);
+  border-radius: 0;
+}
+
+.toggle-btn:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.toggle-btn:last-child {
+  border-radius: 0 6px 6px 0;
+  border-left: none;
+}
+
+.toggle-btn.active {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.action-btn {
+  padding: 0.5rem 1.25rem;
+  height: 36px;
+  font-weight: 600;
+  border: none;
+}
+
+.action-btn.primary {
+  background-color: var(--color-primary);
+  color: var(--text-primary);
+}
+.action-btn.primary:hover {
+  opacity: 0.9;
+  box-shadow: 0 4px 12px var(--color-primary-glow);
+}
+
+.action-btn.secondary {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+}
+.action-btn.secondary:hover {
+  background-color: var(--glass-border);
+}
+
+.action-btn.accent {
+  background-color: var(--color-accent);
+  color: var(--text-primary);
+}
+
+.action-btn.danger {
+  background-color: var(--color-danger);
+  color: #fff;
+}
+
+.action-btn.danger-outline {
+  background: transparent;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+}
+.action-btn.danger-outline:hover {
+  background: hsla(0, 84%, 60%, 0.1);
+}
+
+.action-btn.success {
+  background-color: var(--color-success);
+  color: #fff;
+}
+.action-btn.success:hover {
+  opacity: 0.9;
+}
+
+.action-btn.small {
+  height: 28px;
+  font-size: 0.75rem;
+  padding: 0 0.75rem;
+  border-radius: 4px;
+}
+
+.search-input, .select-input {
+  font-family: var(--font-family);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+  height: 36px;
+  border-radius: 6px;
+  outline: none;
+  transition: var(--transition-fast);
+}
+
+.search-input:focus, .select-input:focus {
+  border-color: var(--glass-border-focus);
+  box-shadow: 0 0 0 2px var(--color-primary-glow);
+}
+
+/* Search suggestions box */
+.search-locator-container {
+  position: relative;
+}
+
+.suggestions-box {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  z-index: 20;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: var(--glass-shadow);
+}
+
+.suggestion-item {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: var(--transition-fast);
+}
+.suggestion-item:hover {
+  background: var(--bg-tertiary);
+  color: var(--color-primary);
+}
+
+/* --------------------------------------------------------------------------
+   7. Interactive Viewport & Zoom Pan Board
+   -------------------------------------------------------------------------- */
+.viewport-container {
+  flex-grow: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background-color: var(--bg-primary);
+  cursor: grab;
+  outline: none;
+  background-image: 
+    radial-gradient(var(--glass-border) 1px, transparent 1px),
+    radial-gradient(var(--glass-border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: 0 0, 20px 20px;
+}
+
+.viewport-container:active {
+  cursor: grabbing;
+}
+
+.bracket-workspace {
+  position: absolute;
+  transform-origin: 0 0;
+  width: 2000px;
+  height: 1200px;
+  /* Disable transitions during manual dragging, enable dynamically via JS for tracking */
+  will-change: transform;
+}
+
+/* --------------------------------------------------------------------------
+   8. Match Cards Layout System
+   -------------------------------------------------------------------------- */
+.match-cards-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* Let background handles drag clicks */
+}
+
+.match-card {
+  position: absolute;
+  width: 240px;
+  height: 90px;
+  background-color: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(10px);
+  pointer-events: auto; /* Re-enable clicks for cards */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform 0.3s ease;
+  user-select: none;
+}
+
+.match-card:hover {
+  border-color: var(--glass-border-focus);
+  box-shadow: 0 8px 32px var(--color-primary-glow);
+}
+
+.match-card.highlighted {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 16px 2px var(--color-primary-glow);
+  transform: scale(1.03);
+  z-index: 5;
+}
+
+/* Match Slots */
+.match-slot {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.75rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--glass-border);
+  position: relative;
+  transition: var(--transition-fast);
+}
+
+.match-slot:last-child {
+  border-bottom: none;
+}
+
+.slot-player-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 75%;
+}
+
+.slot-seed {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.slot-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slot-company {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.slot-score {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  width: 24px;
+  text-align: center;
+}
+
+/* Winner styling */
+.match-slot.winner-slot {
+  background-color: var(--color-success-glow);
+}
+
+.match-slot.winner-slot .slot-name {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.match-slot.winner-slot .slot-score {
+  color: var(--color-success);
+}
+
+/* Loser styling */
+.match-slot.loser-slot {
+  opacity: 0.5;
+}
+
+/* BYE slot styling */
+.match-slot.bye-slot {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.match-slot.bye-slot .slot-name {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Match status tags & icons */
+.match-header-indicator {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 0.65rem;
+  display: flex;
+  gap: 2px;
+}
+
+.match-lock-indicator {
+  position: absolute;
+  right: 6px;
+  top: calc(50% - 7px);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+/* 3rd place card override */
+.match-card.third-place-card {
+  border-style: dashed;
+}
+.match-card.third-place-card::after {
+  content: "3rd Place Match";
+  position: absolute;
+  top: -8px;
+  left: 8px;
+  background-color: var(--bg-primary);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0 4px;
+  color: var(--color-warning);
+  border-radius: 3px;
+  border: 1px solid var(--glass-border);
+}
+
+/* --------------------------------------------------------------------------
+   9. SVG Connector Lines Layer
+   -------------------------------------------------------------------------- */
+.svg-connectors-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.connector-path {
+  fill: none;
+  stroke: var(--glass-border);
+  stroke-width: 2px;
+  transition: stroke var(--transition-fast), stroke-width var(--transition-fast);
+}
+
+.connector-path.highlighted {
+  stroke: var(--color-primary);
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 3px var(--color-primary-glow));
+}
+
+.connector-path.winner-path {
+  stroke: var(--color-success);
+  stroke-width: 2.5px;
+}
+
+.connector-path.winner-path.highlighted {
+  stroke: var(--color-success);
+  stroke-width: 3.5px;
+  filter: drop-shadow(0 0 5px var(--color-success));
+}
+
+/* --------------------------------------------------------------------------
+   10. Tables & Leaderboard
+   -------------------------------------------------------------------------- */
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.panel-header-row h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background-color: var(--bg-secondary);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+th, td {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+th {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  user-select: none;
+}
+
+th.sortable {
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+th.sortable:hover {
+  color: var(--text-primary);
+  background-color: var(--glass-border);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr {
+  transition: var(--transition-fast);
+}
+tbody tr:hover {
+  background-color: var(--bg-tertiary);
+}
+
+/* Leaderboard status styles */
+.status-tag {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.status-tag.active {
+  background-color: hsla(239, 84%, 67%, 0.15);
+  color: var(--color-primary);
+}
+
+.status-tag.eliminated {
+  background-color: hsla(0, 0%, 50%, 0.15);
+  color: var(--text-muted);
+}
+
+.status-tag.champion {
+  background-color: hsla(45, 93%, 47%, 0.15);
+  color: var(--color-gold);
+  border: 1px solid var(--color-gold);
+}
+
+.status-tag.runner-up {
+  background-color: hsla(210, 10%, 75%, 0.15);
+  color: var(--color-silver);
+  border: 1px solid var(--color-silver);
+}
+
+.status-tag.third-place {
+  background-color: hsla(25, 40%, 50%, 0.15);
+  color: var(--color-bronze);
+  border: 1px solid var(--color-bronze);
+}
+
+/* --------------------------------------------------------------------------
+   11. Progress Tracker view
+   -------------------------------------------------------------------------- */
+.progress-table td {
+  text-align: center;
+}
+.progress-table th {
+  text-align: center;
+}
+.progress-table td:first-child, .progress-table th:first-child {
+  text-align: left;
+}
+
+.progress-check {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.progress-trophy {
+  font-size: 1.25rem;
+  filter: drop-shadow(0 0 4px var(--color-gold));
+}
+
+/* --------------------------------------------------------------------------
+   12. Participant Directory view
+   -------------------------------------------------------------------------- */
+.directory-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--color-primary);
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.directory-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.directory-search-bar {
+  display: flex;
+  width: 100%;
+}
+.directory-search-bar input {
+  width: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   13. Drawers (Sidebars)
+   -------------------------------------------------------------------------- */
+.player-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 350px;
+  height: 100%;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--glass-border);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(0);
+  transition: transform var(--transition-slow);
+}
+
+.player-drawer.hide {
+  transform: translateX(100%);
+  display: none !important;
+}
+
+.drawer-header {
+  padding: 1.25rem;
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.drawer-header h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.icon-btn-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.drawer-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.info-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info-value {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.info-value.text-large {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.match-history-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.history-item {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  display: flex;
+  justify-content: space-between;
+}
+
+.history-round {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.history-result.win {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.history-result.loss {
+  color: var(--color-danger);
+}
+
+/* --------------------------------------------------------------------------
+   14. Modals (Dialogs)
+   -------------------------------------------------------------------------- */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.hide {
+  display: none !important;
+}
+
+.modal-content {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalFadeIn var(--transition-normal);
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+/* Forms general */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.form-group.flex-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group textarea {
+  font-family: var(--font-family);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  outline: none;
+  font-size: 0.9rem;
+  transition: var(--transition-fast);
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  border-color: var(--glass-border-focus);
+}
+
+/* Match VS Dialog specific */
+.match-vs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.match-player-col {
+  flex: 1;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.5rem;
+}
+
+.player-seed-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background-color: var(--bg-primary);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.player-name-display {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+
+.player-company-display {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.score-input-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.score-input-container input {
+  width: 70px;
+  text-align: center;
+  font-size: 1.2rem;
+  font-weight: 700;
+  height: 38px;
+}
+
+.match-vs-separator {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.modal-instructions {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.import-example {
+  background: var(--bg-primary);
+  border: 1px solid var(--glass-border);
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+/* --------------------------------------------------------------------------
+   15. Responsive Media Queries
+   ========================================================================== */
+
+/* Tablet (Landscape & Portrait) */
+@media (max-width: 1024px) {
+  .app-header {
+    padding: 0.75rem 1.25rem;
+    gap: 1rem;
+  }
+  
+  .header-branding h1 {
+    font-size: 1.2rem;
+  }
+
+  .nav-tab {
+    padding: 0.4rem 0.85rem;
+    font-size: 0.85rem;
+  }
+
+  .panel-toolbar {
+    padding: 0.5rem 1.25rem;
+  }
+
+  .player-drawer {
+    width: 300px;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    flex-direction: column;
+    align-items: stretch;
+    height: auto;
+    padding: 0.75rem;
+  }
+
+  .header-branding {
+    justify-content: center;
+  }
+
+  .app-nav {
+    justify-content: center;
+  }
+
+  .header-actions {
+    justify-content: center;
+  }
+
+  .app-main {
+    height: calc(100vh - 160px);
+  }
+
+  .tab-panel {
+    padding: 1rem;
+  }
+
+  .panel-toolbar {
+    justify-content: center;
+  }
+
+  .directory-stats {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .player-drawer {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--glass-border);
+  }
+}
+
+/* Mobile Landscape & Portrait */
+@media (max-width: 480px) {
+  .header-branding h1 {
+    font-size: 1rem;
+  }
+  
+  .nav-tab {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  .panel-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .toolbar-group {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .toolbar-group .search-input {
+    width: 100%;
+  }
+
+  .match-card {
+    width: 200px;
+    height: 80px;
+  }
+  
+  .slot-name {
+    font-size: 0.75rem;
+  }
+  
+  .slot-company {
+    font-size: 0.65rem;
+  }
+
+  .match-vs-row {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .match-player-col {
+    width: 100%;
+  }
+
+  .modal-content {
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+}
